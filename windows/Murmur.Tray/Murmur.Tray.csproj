@@ -9,7 +9,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Murmur</AssemblyName>
     <RootNamespace>Murmur</RootNamespace>
-    <ApplicationIcon>murmur.ico</ApplicationIcon>
+    <!-- TODO (Windows agent): generate murmur.ico from Resources/icon.png (e.g. ImageMagick: magick Resources/icon.png -define icon:auto-resize=256,128,64,48,32,16 windows/Murmur.Tray/murmur.ico) and commit it. -->
+    <ApplicationIcon Condition="Exists('murmur.ico')">murmur.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
@@ -21,5 +22,8 @@
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.1.3" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('murmur.ico')">
+    <None Include="murmur.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
