@@ -32,32 +32,67 @@ ever leaves the machine and there is nothing to sign up for.
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later
-- Apple silicon Mac
-- Apple Intelligence turned on, for the optional clean-up only
+- macOS 26 (Tahoe) or later on Apple silicon, or Windows 10 22H2 / Windows 11 (see Install)
+- Apple Intelligence turned on, for the optional clean-up on the Mac only
 
 ## Install
 
-1. Download `Murmur-x.y.z.zip` from the [latest release](../../releases/latest), unzip it and move
-   `Murmur.app` to `/Applications`.
-2. Murmur isn't notarized, so macOS blocks it the first time. Either open **System Settings → Privacy &
-   Security** and click **Open Anyway**, or run:
+### macOS
 
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Murmur.app
-   ```
+Homebrew:
 
-3. Open Murmur. A mic icon appears in the menu bar, and macOS asks for these permissions:
+```bash
+brew tap ltanedo/murmur
+brew install --cask murmur
+```
 
-   | Permission | Why |
-   | --- | --- |
-   | Microphone | To hear you while the hotkey is held |
-   | Accessibility | To detect <kbd>Right ⌥</kbd> and paste the text into other apps |
-   | Audio capture | To turn down other apps' audio while you dictate |
+Terminal, without Homebrew:
 
-   After granting Accessibility, quit Murmur and open it again.
+```bash
+curl -L -o /tmp/Murmur.zip https://github.com/ltanedo/murmur/releases/latest/download/Murmur-mac.zip \
+  && ditto -x -k /tmp/Murmur.zip /Applications \
+  && xattr -dr com.apple.quarantine /Applications/Murmur.app \
+  && open /Applications/Murmur.app
+```
 
-The first launch downloads Apple's speech model for your language. The menu shows progress.
+Manual: download `Murmur-<version>.zip` from the [latest release](../../releases/latest), unzip it and
+move `Murmur.app` to `/Applications`. Murmur isn't notarized, so the first launch needs
+**System Settings → Privacy & Security → Open Anyway** (the `xattr` line above does the same).
+
+Open Murmur. A mic icon appears in the menu bar, and macOS asks for these permissions:
+
+| Permission | Why |
+| --- | --- |
+| Microphone | To hear you while the hotkey is held |
+| Accessibility | To detect <kbd>Right ⌥</kbd> and paste the text into other apps |
+| Audio capture | To turn down other apps' audio while you dictate |
+
+After granting Accessibility, quit Murmur and open it again. The first launch downloads Apple's
+speech model for your language. The menu shows progress.
+
+### Windows
+
+Installer: download and run `MurmurSetup-<version>.exe` from the [latest release](../../releases/latest)
+(per-user, no admin rights).
+
+Scoop:
+
+```powershell
+scoop bucket add murmur https://github.com/ltanedo/scoop-murmur
+scoop install murmur
+```
+
+PowerShell, portable:
+
+```powershell
+irm https://github.com/ltanedo/murmur/releases/latest/download/install.ps1 | iex
+```
+
+Requirements: Windows 10 22H2 or Windows 11, the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0),
+and **Settings → Privacy & security → Speech → Online speech recognition** turned on (the Windows edition uses
+Microsoft's built-in dictation service, which is free and needs no account). Allow microphone access when asked.
+The tray icon's menu has shortcuts to both settings pages. Hold <kbd>Right Alt</kbd> to dictate; see
+[docs/windows.md](docs/windows.md) for how it works.
 
 ## Usage
 

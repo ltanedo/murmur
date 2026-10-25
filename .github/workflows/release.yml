@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Murmur.app
+        run: ./build.sh --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/Murmur-*.zip
+            dist/Murmur-mac.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Read version
+        id: v
+        shell: bash
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Publish (framework-dependent, win-x64)
+        run: dotnet publish windows/Murmur.Tray/Murmur.Tray.csproj -c Release -r win-x64 --self-contained false -o publish
+      - name: Portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path publish\* -DestinationPath "dist\Murmur-win-x64-${{ steps.v.outputs.version }}.zip"
+          Copy-Item "dist\Murmur-win-x64-${{ steps.v.outputs.version }}.zip" dist\Murmur-win-x64.zip
+          Copy-Item windows\installer\install.ps1 dist\install.ps1
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DVersion=${{ steps.v.outputs.version }}" "/DPublishDir=$PWD\publish" windows\installer\Murmur.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  release:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+      - name: Checksums
+        run: |
+          cd assets && find . -type f ! -name SHA256SUMS.txt -exec sha256sum {} \; | sed 's# \./[^/]*/# #' > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/**/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
