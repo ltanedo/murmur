@@ -3,3 +3,8 @@
 .swiftpm/
 Murmur.app/
 dist/
+
+# Windows build output
+windows/**/bin/
+windows/**/obj/
+windows/**/publish/

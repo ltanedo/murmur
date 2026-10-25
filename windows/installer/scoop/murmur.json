@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "description": "Push-to-talk dictation in the system tray. Hold Right Alt, talk, let go.",
+    "homepage": "https://github.com/ltanedo/murmur",
+    "license": "MIT",
+    "url": "https://github.com/ltanedo/murmur/releases/download/v0.2.0/Murmur-win-x64-0.2.0.zip",
+    "hash": "REPLACE_WITH_SHA256_FROM_RELEASE",
+    "bin": "Murmur.exe",
+    "shortcuts": [["Murmur.exe", "Murmur"]],
+    "depends": "dotnet-desktop-runtime",
+    "notes": "Turn on Settings > Privacy & security > Speech > Online speech recognition, then hold Right Alt to dictate.",
+    "checkver": "github",
+    "autoupdate": {
+        "url": "https://github.com/ltanedo/murmur/releases/download/v$version/Murmur-win-x64-$version.zip"
+    }
+}

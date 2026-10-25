@@ -9,6 +9,11 @@ cd "$(dirname "$0")"
 OUT=.
 [[ "${1:-}" == "--release" ]] && OUT=dist
 
+# Single source of truth for the version, shared with the Windows build.
+VERSION=$(tr -d '[:space:]' < VERSION)
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Info.plist
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Info.plist 2>/dev/null || true
+
 swift build -c release
 
 APP="$OUT/Murmur.app"
@@ -21,9 +26,9 @@ codesign --force --sign - "$APP"
 echo "Built $APP"
 
 if [[ "$OUT" == dist ]]; then
-  VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
   ZIP="dist/Murmur-$VERSION.zip"
-  rm -f "$ZIP"
+  rm -f "$ZIP" dist/Murmur-mac.zip
   ditto -c -k --keepParent "$APP" "$ZIP"
+  cp "$ZIP" dist/Murmur-mac.zip   # stable name for the one-line installer
   echo "Packaged $ZIP"
 fi
