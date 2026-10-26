@@ -3,20 +3,20 @@ using Windows.Media.SpeechRecognition;
 
 namespace Murmur;
 
-sealed class TranscriberException(string message) : Exception(message);
-
 /// <summary>
-/// Captures the microphone and transcribes it with the in-box Windows speech recognizer
-/// (Windows.Media.SpeechRecognition). The recognizer owns the microphone itself: a continuous
-/// recognition session is started when the hotkey goes down and stopped when it comes up, and
-/// every phrase it produced in between is joined into the transcript.
+/// Fallback engine: Windows' older dictation through Windows.Media.SpeechRecognition. It is used
+/// only when the PC can't run the on-device model. Windows gates its dictation grammar behind the
+/// "Online speech recognition" privacy toggle and may send audio to Microsoft's speech service,
+/// so Murmur labels it "Online dictation" rather than on-device. No key or account is involved.
 ///
-/// Recognition uses the speech language pack installed for the Windows speech language.
-/// No account, key or cloud resource is configured; this is the same engine as Windows' own
-/// dictation.
+/// The recognizer owns the microphone: a continuous recognition session is started when the
+/// hotkey goes down and stopped when it comes up, and every phrase in between is joined.
 /// </summary>
-sealed class Transcriber : IDisposable
+sealed class OnlineSpeechEngine : ISpeechEngine
 {
+    public string Label => "Online dictation";
+    public bool IsOnDevice => false;
+
     private SpeechRecognizer? _recognizer;
     private readonly List<string> _phrases = [];
     private readonly object _gate = new();
@@ -24,13 +24,12 @@ sealed class Transcriber : IDisposable
     private bool _listening;
 
     public Language? Language { get; private set; }
-
-    /// <summary>Fires when the recognizer hears sound start or stop, for the on-screen indicator.</summary>
-    public Action<bool>? OnSound;
+    public Action<bool>? OnSound { get; set; }
 
     /// <summary>Creates the recognizer for the Windows speech language and compiles the dictation grammar.</summary>
-    public async Task PrepareAsync()
+    public async Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status)
     {
+        status("Loading Windows dictation…");
         var language = SpeechRecognizer.SystemSpeechLanguage;
         var supported = SpeechRecognizer.SupportedTopicLanguages;
         Log.Write($"speech language {language?.LanguageTag}, dictation languages: " +
@@ -64,7 +63,6 @@ sealed class Transcriber : IDisposable
         Log.Write($"dictation grammar compiled for {language.LanguageTag}");
     }
 
-    /// <summary>Starts listening. Returns once the microphone is open.</summary>
     public async Task StartAsync()
     {
         var recognizer = _recognizer ?? throw new TranscriberException("The speech recognizer isn't ready yet.");
@@ -85,7 +83,6 @@ sealed class Transcriber : IDisposable
         }
     }
 
-    /// <summary>Stops listening, waits for the recognizer to finish the audio it has, and returns the transcript.</summary>
     public async Task<string> StopAsync()
     {
         var recognizer = _recognizer;
@@ -120,7 +117,6 @@ sealed class Transcriber : IDisposable
         }
     }
 
-    /// <summary>Stops listening and throws the audio away.</summary>
     public async Task CancelAsync()
     {
         var recognizer = _recognizer;

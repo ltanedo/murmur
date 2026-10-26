@@ -112,50 +112,71 @@ Other commands:
 The Windows port lives in [`Windows/`](Windows/) and is a small .NET tray app. It does the same job: hold
 <kbd>Right Alt</kbd>, talk, let go, and the text is typed into whatever has focus.
 
+> **Experimental.** The Windows build uses the Windows AI speech recognition API
+> (`Microsoft.Windows.AI.Speech`), which Microsoft ships only in the *experimental* channel of the Windows App
+> SDK. It is English-only in the current preview, not supported for production, and apps that use it must not be
+> published to the Microsoft Store. Expect the API, and this build, to change.
+
+### Speech engines
+
+| Engine | When it's used | Where audio goes |
+| --- | --- | --- |
+| **On-device** (`Microsoft.Windows.AI.Speech`) | Whenever this PC can run it | Nowhere. The model runs on the NPU of a Copilot+ PC or on the CPU. No key, no account, no Azure. |
+| **Online dictation** (`Windows.Media.SpeechRecognition.SpeechRecognizer`) | Only when the on-device model reports *not supported on this system* | Handled by Windows' own dictation, which may send audio to Microsoft's speech service. |
+
+The tray menu always shows which one is active (*Engine: On-device* or *Engine: Online dictation*), and Murmur
+shows a notification if it had to fall back.
+
 ### Requirements
 
-- Windows 10 version 2004 (build 19041) or later, or Windows 11
-- The [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (x64). The .NET 8 SDK is only
-  needed to build.
-- The **speech language pack** for your Windows speech language, and the speech privacy setting turned on
-  (see below)
+- Windows 11, version 24H2 (build 26100) or later, for the on-device engine. The fallback runs on Windows 10
+  2004 and later.
+- A Copilot+ PC with an NPU (model preinstalled), or any x64 PC. On a CPU-only PC Microsoft recommends 4+ cores,
+  a 3 GHz base clock and 32 MB of L3 cache for real-time use; the model is an optional download.
+- Windows App Runtime 2.5.4-experimental (the build script installs it for you).
+- .NET 8 SDK to build. Nothing else: the Windows SDK tools come from NuGet.
 
-### Speech language pack
+### Speech model and language pack
 
-Murmur uses `Windows.Media.SpeechRecognition.SpeechRecognizer`, the free recognizer built into Windows that
-also powers Windows' own dictation. It needs the speech pack for your language:
+**On-device engine.** The first time Murmur starts on a CPU-only PC, it asks for permission to download the
+*speech recognition model*, which Windows fetches in the background through Windows Update. You can watch
+progress under **Settings → Windows Update** and remove the model later under **Settings → System → AI
+components**. On Copilot+ PCs the model is already there. The preview model recognises English only.
 
-1. Open **Settings → Time & language → Language & region**.
-2. Next to your language, choose **… → Language options** and under *Speech* install **Basic speech
-   recognition** (listed as *Speech recognition* on some builds). Windows downloads the language pack once.
-3. Under **Settings → Time & language → Speech**, make sure *Speech language* is the language you just set up
-   and that its pack is installed.
-4. Open **Settings → Privacy & security → Speech** and turn on **Online speech recognition**. Windows gates the
-   `SpeechRecognizer` dictation grammar behind this toggle and refuses to start listening while it is off; Murmur
-   then shows *Turn on "Online speech recognition"…* in its tray menu and a balloon.
-5. Under **Settings → Privacy & security → Microphone**, allow desktop apps to use the microphone.
+**Online dictation fallback.** If Murmur reports *Online dictation*, Windows' dictation needs:
 
-Murmur checks at launch that your speech language is in the recognizer's dictation language list and shows
-the missing-pack message in its tray menu otherwise.
+1. The **speech language pack** for your Windows speech language: **Settings → Time & language → Language &
+   region → … → Language options → Speech → Basic speech recognition**. Check *Speech language* under
+   **Settings → Time & language → Speech**.
+2. **Online speech recognition** turned on under **Settings → Privacy & security → Speech**. Windows refuses to
+   start the dictation grammar while it is off, and Murmur says so in its tray menu.
 
-> **Honest note on "on-device".** Murmur never sends audio anywhere itself, has no API key and configures no
-> cloud service. The recognition happens inside Windows' own `SpeechRecognizer`. Microsoft's documentation
-> describes the dictation grammar of that API as backed by its speech service when the toggle above is on, with
-> the installed language pack providing the local engine. Which of the two Windows uses for a given phrase is
-> decided by Windows, not by Murmur. If you need a guarantee that nothing leaves the machine, test with the
-> network disconnected on your build of Windows.
+In both cases, allow Murmur under **Settings → Privacy & security → Microphone**.
 
-### Build
+### Build and install
 
 Install the .NET 8 SDK (`winget install Microsoft.DotNet.SDK.8`), then from the repository root:
 
 ```powershell
-.\Windows\build.ps1            # builds Windows\Murmur\bin\Release\...\Murmur.exe
-.\Windows\build.ps1 -Release   # single-file dist\windows\Murmur.exe and dist\Murmur-windows-<version>.zip
+.\Windows\build.ps1             # publishes the app, packs dist\windows\Murmur.msix and signs it with a dev certificate
+.\Windows\build.ps1 -Install    # also installs the Windows App Runtime (experimental) and Murmur for your user
 ```
 
-Or directly: `dotnet build Windows\Murmur\Murmur.csproj -c Release`. Run `Murmur.exe` and a microphone icon
-appears in the tray; the first time, Windows may ask to allow microphone access.
+The app has to run as an MSIX package: the Windows AI APIs require package identity and the `systemAIModels`
+capability, which [`Package.appxmanifest`](Windows/Murmur/Package.appxmanifest) declares together with
+`microphone` and `runFullTrust`. The script builds the package with `makeappx` and `signtool` from the
+`Microsoft.Windows.SDK.BuildTools` NuGet package, so Visual Studio is not needed. The Windows App Runtime
+framework package comes from the `Microsoft.WindowsAppSDK.Runtime` NuGet package.
+
+Installing a locally built package needs one of:
+
+- **Developer Mode** (**Settings → System → For developers**): the script registers the loose layout
+  directly, no certificate involved.
+- Otherwise the script creates a self-signed *Murmur Developer* certificate in your user store, signs the
+  package with it and adds it to your user's Trusted Root store. Windows shows a confirmation dialog for that
+  once. Nothing is written to the machine-wide stores and no admin rights are needed.
+
+The certificate's private key never leaves your Windows certificate store and no secrets are in the repository.
 
 ### Usage
 
@@ -167,11 +188,12 @@ appears in the tray; the first time, Windows may ask to allow microphone access.
 
 Right-click the tray icon for the menu:
 
+- **Engine:** which speech engine is active (see above).
 - **Clean Up Filler Words:** removes "um", "uh", "er", "hmm" and repeated words with a small set of rules
   (Windows has no on-device language model in the box, so this is simpler than the Mac version).
 - **Speech Settings… / Microphone Settings…:** jump to the relevant Windows privacy pages.
 - `Murmur.exe --demo-overlay` plays the on-screen indicator; `Murmur.exe --debug` writes a log with transcripts
-  to `%LOCALAPPDATA%\Murmur\Murmur.log`.
+  to `%LOCALAPPDATA%\Murmur\Murmur.log` (inside the package's virtualised AppData when installed).
 
 ### Differences from the Mac app
 
@@ -179,26 +201,30 @@ Right-click the tray icon for the menu:
   focused window runs as administrator and Murmur doesn't, Windows blocks the keystrokes; the text is then put
   on the clipboard and the tray menu says so.
 - There is no audio ducking yet.
-- The live indicator shows a dot that grows while the recognizer hears sound, rather than a level meter, because
-  the Windows recognizer owns the microphone and doesn't expose the raw audio.
-- Only languages with an installed speech pack work; the recognizer list is checked at launch.
+- The live indicator shows a dot that grows while the recognizer hears speech, rather than a level meter,
+  because the speech APIs own the microphone and don't expose the raw audio.
+- The on-device model is English-only in the preview.
 
 ### How it works (Windows)
 
 | File | Role |
 | --- | --- |
 | [`HotKey.cs`](Windows/Murmur/HotKey.cs) | Low-level keyboard hook watching <kbd>Right Alt</kbd> for press, release and use in shortcuts |
-| [`Transcriber.cs`](Windows/Murmur/Transcriber.cs) | Wraps `SpeechRecognizer` with a dictation topic constraint; a continuous recognition session runs while the key is held and every phrase it produces is joined into the transcript |
+| [`ISpeechEngine.cs`](Windows/Murmur/ISpeechEngine.cs) | The engine contract: prepare, start, stop with transcript, cancel |
+| [`OnDeviceSpeechEngine.cs`](Windows/Murmur/OnDeviceSpeechEngine.cs) | `SpeechRecognitionModelFactory.Default` → `GetReadyState` → `EnsureReadyAsync` (with consent) → `CreateAsync`, then a `StreamingRecognition` on the default microphone while the key is held; final phrases plus the last partial become the transcript |
+| [`OnlineSpeechEngine.cs`](Windows/Murmur/OnlineSpeechEngine.cs) | Fallback on `Windows.Media.SpeechRecognition` with a dictation constraint |
 | [`Overlay.cs`](Windows/Murmur/Overlay.cs) | The floating, click-through, non-activating indicator |
 | [`Cleanup.cs`](Windows/Murmur/Cleanup.cs) | Rule-based filler-word removal |
 | [`TextInserter.cs`](Windows/Murmur/TextInserter.cs) | Types the text with `SendInput` Unicode events; falls back to the clipboard |
-| [`TrayApp.cs`](Windows/Murmur/TrayApp.cs) | Tray icon, settings and the dictation state machine |
+| [`TrayApp.cs`](Windows/Murmur/TrayApp.cs) | Tray icon, engine selection, settings and the dictation state machine |
+| [`Package.appxmanifest`](Windows/Murmur/Package.appxmanifest) / [`build.ps1`](Windows/build.ps1) | MSIX identity, capabilities and the Windows App Runtime dependency; publish, pack, sign, install |
 
 ## Privacy
 
 - On the Mac, audio and text are processed entirely on your machine and are never sent over the network.
-- On Windows, Murmur hands audio only to the Windows speech recognizer and configures no cloud service; see
-  [Speech language pack](#speech-language-pack) for what Windows itself may do.
+- On Windows with the on-device engine, audio is processed by the Windows AI speech model on your PC and never
+  sent anywhere. Only the *Online dictation* fallback may send audio to Microsoft; see
+  [Speech engines](#speech-engines).
 - Nothing is stored. Debug logging is off by default. You can turn it on for troubleshooting, but it records
   transcripts to `~/Library/Logs/Murmur.log`:
 
@@ -215,8 +241,12 @@ Right-click the tray icon for the menu:
 - **Music doesn't get quieter.** Check that Murmur is allowed under **Privacy & Security → Screen & System
   Audio Recording** (shown as audio capture).
 - **The first word is cut off.** Some USB mics take around 300 ms to start. Pause briefly after pressing the key.
-- **Windows: the menu says "No dictation support for …".** Install the speech pack for your language and check
-  *Speech language* in **Settings → Time & language → Speech**, then relaunch Murmur.
+- **Windows: the menu says "Engine: Online dictation".** This PC can't run the on-device model (it needs
+  Windows 11 24H2 and a supported NPU or CPU). The fallback needs the speech language pack and the *Online
+  speech recognition* toggle; see [Speech model and language pack](#speech-model-and-language-pack).
+- **Windows: "Windows AI speech isn't available here (Class not registered)".** Murmur was started from the
+  build folder instead of as the installed package. Run `.\Windows\build.ps1 -Install` and start it from the
+  Start menu.
 - **Windows: nothing happens when I hold Right Alt.** Another app may already be holding a keyboard hook, or
   the focused window is elevated. Try a non-elevated window such as Notepad.
 

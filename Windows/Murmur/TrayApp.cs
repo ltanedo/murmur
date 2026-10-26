@@ -11,10 +11,11 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
-    private readonly Transcriber _transcriber = new();
+    private ISpeechEngine _engine = new OnDeviceSpeechEngine();
     private readonly Overlay _overlay = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _statusLine;
+    private readonly ToolStripMenuItem _engineLine;
     private readonly ToolStripMenuItem _cleanupItem;
     private readonly HotKey _hotKey;
     private readonly bool _darkTaskbar = TrayIcons.IsTaskbarDark();
@@ -47,11 +48,13 @@ sealed class TrayApp : ApplicationContext
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
 
         _statusLine = new ToolStripMenuItem("Starting…") { Enabled = false };
+        _engineLine = new ToolStripMenuItem("Engine: starting…") { Enabled = false };
         _cleanupItem = new ToolStripMenuItem("Clean Up Filler Words") { Checked = Settings.Cleanup, CheckOnClick = true };
         _cleanupItem.CheckedChanged += (_, _) => Settings.Cleanup = _cleanupItem.Checked;
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusLine);
+        menu.Items.Add(_engineLine);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_cleanupItem);
         menu.Items.Add("Speech Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-speech"));
@@ -62,7 +65,6 @@ sealed class TrayApp : ApplicationContext
         _tray = new NotifyIcon { Text = "Murmur", ContextMenuStrip = menu, Visible = true };
         UpdateIcon();
 
-        _transcriber.OnSound = speaking => _ui.Post(_ => _overlay.SetSpeaking(speaking), null);
 
         _hotKey = new HotKey();
         _hotKey.OnPress = HotKeyPressed;
@@ -73,21 +75,60 @@ sealed class TrayApp : ApplicationContext
         _ = PrepareAsync();
     }
 
+    /// <summary>
+    /// Gets the on-device engine ready; if this PC can't run it, falls back to Windows' online
+    /// dictation and says so in the menu.
+    /// </summary>
     private async Task PrepareAsync()
     {
         try
         {
-            SetStatus("Loading speech recognizer…");
-            await _transcriber.PrepareAsync();
-            SetStatus($"Hold Right Alt to dictate · tap to toggle ({_transcriber.Language?.DisplayName})");
+            try
+            {
+                await PrepareEngineAsync();
+            }
+            catch (EngineNotSupportedException e)
+            {
+                Log.Write($"on-device engine unavailable, falling back: {e.Message}");
+                _engine.Dispose();
+                _engine = new OnlineSpeechEngine();
+                await PrepareEngineAsync();
+                _tray.ShowBalloonTip(8_000, "Murmur is using online dictation",
+                    $"{e.Message} Windows' online dictation is used instead; audio may be sent to Microsoft.",
+                    ToolTipIcon.Info);
+            }
+            _engineLine.Text = _engine.IsOnDevice
+                ? "Engine: On-device (Windows AI speech)"
+                : "Engine: Online dictation (Windows speech service)";
+            SetStatus("Hold Right Alt to dictate · tap to toggle");
             CurrentState = State.Idle;
         }
         catch (Exception e)
         {
             Log.Write($"prepare error: {e}");
+            _engineLine.Text = "Engine: unavailable";
             SetStatus($"Error: {e.Message}");
             _tray.ShowBalloonTip(10_000, "Murmur can't start dictation", e.Message, ToolTipIcon.Warning);
         }
+    }
+
+    private Task PrepareEngineAsync()
+    {
+        _engine.OnSound = speaking => _ui.Post(_ => _overlay.SetSpeaking(speaking), null);
+        return _engine.PrepareAsync(AskUserAsync, SetStatus);
+    }
+
+    /// <summary>Yes/no question on the UI thread, used for the model-download consent.</summary>
+    private Task<bool> AskUserAsync(string question)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        _ui.Post(_ =>
+        {
+            var answer = MessageBox.Show(question, "Murmur", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button1, MessageBoxOptions.DefaultDesktopOnly);
+            tcs.SetResult(answer == DialogResult.Yes);
+        }, null);
+        return tcs.Task;
     }
 
     /// <summary>Shows the overlay with fake activity for a few seconds, for checking how it looks.</summary>
@@ -142,7 +183,7 @@ sealed class TrayApp : ApplicationContext
         _cancelRequested = false;
         try
         {
-            await _transcriber.StartAsync();
+            await _engine.StartAsync();
             CurrentState = State.Recording;
             if (_stopRequested) StopDictation();
         }
@@ -177,7 +218,7 @@ sealed class TrayApp : ApplicationContext
             if (_cancelRequested)
             {
                 _overlay.Show(Overlay.Mode.Hidden);
-                await _transcriber.CancelAsync();
+                await _engine.CancelAsync();
                 text = "";
             }
             else
@@ -185,7 +226,7 @@ sealed class TrayApp : ApplicationContext
                 // Keep listening briefly so the last word isn't clipped by letting go of the key.
                 await Task.Delay(TrailingAudio);
                 _overlay.Show(Overlay.Mode.Processing);
-                text = await _transcriber.StopAsync();
+                text = await _engine.StopAsync();
             }
             Log.Write($"transcript: \"{text}\" cancelled={_cancelRequested}");
             if (Settings.Cleanup && text.Length > 0) text = Cleanup.Polish(text);
@@ -239,7 +280,7 @@ sealed class TrayApp : ApplicationContext
     {
         _tray.Visible = false;
         _hotKey.Dispose();
-        _transcriber.Dispose();
+        _engine.Dispose();
         _overlay.Dispose();
         _tray.Dispose();
         base.ExitThreadCore();
