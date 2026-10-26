@@ -3,3 +3,7 @@
 .swiftpm/
 Murmur.app/
 dist/
+bin/
+obj/
+*.user
+.vs/
