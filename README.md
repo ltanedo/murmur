@@ -130,7 +130,7 @@ one package identity and are alternatives: installing one replaces the other. Sw
 package version requires uninstalling the existing edition first. Both editions now build from the same source tree using the build-time edition setting.
 
 Hold **Right Alt**, speak, then release to transcribe and type. Tap to toggle hands-free mode.
-During microphone capture, other active playback sessions are reduced to 50% of their previous mixer
+During microphone capture, other active playback sessions are reduced to 10% of their previous mixer
 volume. A short rising cue confirms recording started; a falling cue marks the stop request. Playback
 is restored when capture ends (after the existing half-second trailing capture), before transcription
 finishes. Hands-free mode stays ducked until stopped. Manual session-volume changes are preserved;

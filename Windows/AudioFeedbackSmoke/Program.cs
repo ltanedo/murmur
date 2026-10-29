@@ -9,10 +9,10 @@ var states = new List<FakeState> { music, own, muted };
 var errors = new List<string>();
 using (var ducker = new AudioDucker(() => states.Select(s => new FakeSession(s)), 42, errors.Add))
 {
-    ducker.Begin(); Equal(music.Volume, 0.4f); Equal(own.Volume, 1); Equal(muted.Volume, 0);
-    ducker.Begin(); ducker.Refresh(); Equal(music.Volume, 0.4f);
+    ducker.Begin(); Equal(music.Volume, 0.08f); Equal(own.Volume, 1); Equal(muted.Volume, 0);
+    ducker.Begin(); ducker.Refresh(); Equal(music.Volume, 0.08f);
     var late = new FakeState("new-device-session", 0.6f); states.Add(late);
-    ducker.Refresh(); Equal(late.Volume, 0.3f);
+    ducker.Refresh(); Equal(late.Volume, 0.06f);
     music.Volume = 0.25f; // a manual mixer adjustment must win
     ducker.End(); Equal(music.Volume, 0.25f); Equal(late.Volume, 0.6f);
     ducker.End(); Equal(music.Volume, 0.25f);
@@ -21,7 +21,7 @@ if (states.Any(s => s.Handles != 0)) throw new Exception("Playback handle leak")
 states = [new FakeState("healthy", 0.8f), new FakeState("disconnected", 0.5f) { Fail = true }];
 using (var ducker = new AudioDucker(() => states.Select(s => new FakeSession(s)), 42, errors.Add))
 {
-    ducker.Begin(); Equal(states[0].Volume, 0.4f);
+    ducker.Begin(); Equal(states[0].Volume, 0.08f);
 }
 Equal(states[0].Volume, 0.8f);
 if (errors.Count == 0 || states.Any(s => s.Handles != 0)) throw new Exception("Disconnected session not handled");
@@ -31,9 +31,9 @@ var cues = new FakeSounds();
 using (var feedback = new RecordingFeedback(new AudioDucker(() => [new FakeSession(cueMusic)], 42, errors.Add), cues))
 {
     feedback.Begin(); feedback.Started(); feedback.Started();
-    Equal(cueMusic.Volume, 0.45f);
+    Equal(cueMusic.Volume, 0.09f);
     feedback.StopRequested(); feedback.StopRequested();
-    Equal(cueMusic.Volume, 0.45f); // still ducked for trailing capture
+    Equal(cueMusic.Volume, 0.09f); // still ducked for trailing capture
     feedback.CaptureEnded(); feedback.CaptureEnded(); Equal(cueMusic.Volume, 0.9f);
     if (cues.Starts != 1 || cues.Stops != 1) throw new Exception("Duplicate recording cues");
     feedback.Begin(); feedback.CaptureEnded(); // failed mic start: no cues
@@ -49,7 +49,7 @@ var down = RecordingSounds.CreateWave(660, 440);
 if (up.SequenceEqual(down)) throw new Exception("Cues must differ");
 using (var wave = new WaveFileReader(new MemoryStream(up)))
     if (Math.Abs(wave.TotalTime.TotalMilliseconds - 120) > 1) throw new Exception("Invalid cue WAV duration");
-Console.WriteLine("PASS: half volume, no repeated attenuation, new sessions, self exclusion, muted audio, manual changes, disconnects, restoration, cue lifecycle and WAVs.");
+Console.WriteLine("PASS: 10% volume, no repeated attenuation, new sessions, self exclusion, muted audio, manual changes, disconnects, restoration, cue lifecycle and WAVs.");
 
 if (args.Contains("--live"))
 {
@@ -72,13 +72,13 @@ if (args.Contains("--live"))
         using (var ducker = new AudioDucker(OwnSessions, -1, Console.WriteLine))
         {
             ducker.Begin();
-            for (var i = 0; i < sessions.Length; i++) Equal(sessions[i].Volume, before[i] * 0.5f);
+            for (var i = 0; i < sessions.Length; i++) Equal(sessions[i].Volume, before[i] * 0.1f);
             ducker.End();
             for (var i = 0; i < sessions.Length; i++) Equal(sessions[i].Volume, before[i]);
         }
     }
     finally { foreach (var session in sessions) session.Dispose(); output.Stop(); }
-    Console.WriteLine("PASS: real Windows playback session halved and restored (silent test only).");
+    Console.WriteLine("PASS: real Windows playback session reduced to 10% and restored (silent test only).");
 }
 
 static void Equal(float actual, float expected)

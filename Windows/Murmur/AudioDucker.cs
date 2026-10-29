@@ -34,7 +34,7 @@ sealed class AudioDucker(Func<IEnumerable<IPlaybackSession>> enumerate, int ownP
                     var id = session.Id;
                     if (session.ProcessId == ownProcessId || _saved.ContainsKey(id)) continue;
                     var original = session.Volume;
-                    var lowered = original * 0.5f;
+                    var lowered = original * 0.1f; // Match the Mac default: keep 10% of the original volume.
                     _saved.Add(id, new Saved(session, original, lowered));
                     retained = true;
                     session.Volume = lowered;
