@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for the Windows build. build.ps1 copies it into the package layout as
+  AppxManifest.xml. The Windows AI speech APIs require a packaged app with the
+  systemAIModels capability; the microphone capability covers the mic prompt.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
+  IgnorableNamespaces="uap rescap systemai">
+
+  <Identity Name="Murmur.Dictation" Publisher="CN=Murmur Developer" Version="1.0.0.0" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Murmur</DisplayName>
+    <PublisherDisplayName>Murmur</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- MaxVersionTested must be at least 10.0.26226.0 for the Windows AI APIs to load their models. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26226.0" />
+    <!-- Windows App Runtime, experimental channel (Microsoft.WindowsAppSDK 2.5.4-experimental). -->
+    <PackageDependency Name="Microsoft.WindowsAppRuntime.2-experimentalF" MinVersion="2.5.4.0"
+                       Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Murmur" Executable="Murmur.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Murmur"
+        Description="Private, on-device voice dictation. Hold Right Alt, talk, release."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <systemai:Capability Name="systemAIModels" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

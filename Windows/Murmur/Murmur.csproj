@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- The Windows AI APIs need the 22621 SDK projection; the app itself runs on Windows 10 2004+ (fallback engine). -->
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Murmur</RootNamespace>
+    <AssemblyName>Murmur</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>Murmur</Product>
+    <Description>Private, on-device voice dictation for the Windows tray.</Description>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <DebugType>embedded</DebugType>
+    <!-- CS8305: Microsoft.Windows.AI.Speech is marked experimental; using it is the point of this build. -->
+    <NoWarn>$(NoWarn);CS8305</NoWarn>
+
+    <!--
+      Packaging. The app ships as an MSIX (see Package.appxmanifest and ..\build.ps1), which the
+      Windows AI APIs require. build.ps1 assembles the MSIX with makeappx rather than the Visual
+      Studio packaging targets, so as far as MSBuild is concerned the project is "unpackaged" and
+      the Windows App SDK bootstrapper is not injected: the package manifest declares the
+      Windows App Runtime framework dependency instead.
+    -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <AppxOSMinVersionReplaceManifestVersion>false</AppxOSMinVersionReplaceManifestVersion>
+    <AppxOSMaxVersionTestedReplaceManifestVersion>false</AppxOSMaxVersionTestedReplaceManifestVersion>
+    <!-- .NET itself is bundled, so the package runs without a separate .NET install. -->
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Experimental channel: Microsoft.Windows.AI.Speech only ships in experimental releases so far. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.4-experimental" />
+    <!-- Only for makeappx.exe and signtool.exe, which build.ps1 finds in the NuGet cache. -->
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Package.appxmanifest" />
+    <None Include="Assets\*.png" />
+    <Compile Remove="OnDeviceSpeechEngine.cs;OnlineSpeechEngine.cs" />
+    <Content Include="Models\speech-model.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Notices\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

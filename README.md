@@ -5,15 +5,17 @@
 <h1 align="center">Murmur</h1>
 
 <p align="center">
-  Private, on-device voice dictation for the Mac menu bar.<br>
-  Hold <kbd>Right ⌥</kbd>, talk, let go, and your words are typed wherever your cursor is.
+  Private, on-device voice dictation for the Mac menu bar and the Windows tray.<br>
+  Hold <kbd>Right ⌥</kbd> (Mac) or <kbd>Right Alt</kbd> (Windows), talk, let go, and your words are typed wherever your cursor is.
 </p>
 
 ---
 
 Murmur is a small, native dictation app in the spirit of Aqua Voice, Wispr Flow and Google AI Edge Eloquent.
-Everything runs locally on your Mac with Apple's built-in speech and language models, so no audio or text
-ever leaves the machine and there is nothing to sign up for.
+Everything runs locally with the speech engine that ships with your operating system (Apple Speech on macOS,
+the in-box Windows speech recognizer on Windows), so there is no account, no API key and nothing to sign up for.
+
+The Mac app is the original; the [Windows app](#windows) is a port with the same hold-to-talk behaviour.
 
 ## Features
 
@@ -105,15 +107,64 @@ Other commands:
 | [`TextInserter.swift`](Sources/Murmur/TextInserter.swift) | Pastes with a synthetic <kbd>⌘V</kbd> and restores the clipboard. Without Accessibility the text is left on the clipboard instead |
 | [`AppDelegate.swift`](Sources/Murmur/AppDelegate.swift) | Menu bar item, settings and the dictation state machine |
 
+## Windows — bundled local GGML edition
+
+[Download Windows GGML](https://github.com/ltanedo/murmur/releases/tag/windows-ggml-v1.0.0.3) ·
+[Microsoft offline/cloud edition](https://github.com/ltanedo/murmur/releases/tag/windows-microsoft-v1.0.0.1) ·
+[Mac 0.1.0](https://github.com/ltanedo/murmur/releases/tag/v0.1.0)
+
+This branch is the standalone GGML edition. It bundles English Whisper `base.en` Q5_1 (~60 MB)
+and runs it on the CPU through Whisper.net / whisper.cpp. Windows AI and Windows cloud speech engines
+are excluded from compilation. No model selection, Windows Update model download, account, or network
+connection is needed for dictation. Model loading ignores any engine preferences saved by older builds.
+
+Install both `.msix` assets from the release in the same folder, then run:
+
+```powershell
+Add-AppxPackage -Path .\Murmur-ggml-signed.msix -DependencyPath .\Microsoft.WindowsAppRuntime.2-experimentalF.msix
+```
+
+The release is signed as Lloyd Tanedo using Azure Artifact Signing, with Microsoft timestamps.
+The Windows runtime dependency is still required by this port's packaging. Both Windows editions share
+one package identity and are alternatives: installing one replaces the other. Switching to a lower
+package version requires uninstalling the existing edition first. Do not merge both edition PRs as-is;
+they intentionally implement alternative Windows applications in the same paths.
+
+Hold **Right Alt**, speak, then release to transcribe and type. Tap to toggle hands-free mode.
+Audio remains in memory; the model remains loaded between recordings. Sessions are limited to five
+minutes. Very short or silent captures are discarded; background noise may still cause incorrect text.
+Microphone permission is required. Transcripts are logged only if debug logging is explicitly enabled.
+
+### Build and validation
+
+Use Windows x64 with the .NET 8 SDK (or a newer SDK supporting the .NET 8 target):
+
+```powershell
+.\Windows\fetch-model.ps1
+.\Windows\build.ps1                 # development certificate
+# Publicly trusted release, using your Azure CLI login and signing metadata:
+.\Windows\release.ps1 -Version 1.0.0.3 -OutputName Murmur-ggml-signed -SigningMetadataPath C:\path\metadata.json
+# Native runtime and failure-path smoke checks:
+dotnet run --project Windows/LocalSpeechSmoke -c Release
+# Optional real-model check (whisper.cpp samples/jfk.wav, 16 kHz mono PCM16):
+dotnet run --project Windows/LocalSpeechSmoke -c Release -- Windows/Murmur/Models/speech-model.bin C:\path\jfk.wav
+```
+
+`fetch-model.ps1` pins model revision `5359861c739e955e79d9a303bcbc70fb988958b1` and verifies SHA-256
+`4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f`. The binary is bundled in releases,
+not committed to Git. The model's MIT license is included in `Notices/Whisper-LICENSE.txt`.
+
+A sample run on an i7-13800H loaded the model in 0.12 s and transcribed an 11 s JFK clip in 0.89 s.
+Native CPU loading, missing/invalid models, silence rejection, and signatures were checked. This is a
+smoke test, not a microphone accuracy benchmark. The original Mac sources are unchanged.
+
 ## Privacy
 
-- Audio and text are processed entirely on your Mac and are never sent over the network.
-- Nothing is stored. Debug logging is off by default. You can turn it on for troubleshooting, but it records
-  transcripts to `~/Library/Logs/Murmur.log`:
-
-  ```bash
-  defaults write app.murmur.dictation debugLogging -bool true
-  ```
+- Mac audio and text are processed locally by Apple Speech.
+- This Windows edition processes audio locally with its bundled Whisper model. It never selects Windows
+  online speech or uploads recordings. Audio is kept in memory for the current recording.
+- Debug logging is off by default. If enabled, it records transcripts. Mac logging can be enabled with
+  `defaults write app.murmur.dictation debugLogging -bool true`; Windows uses `Murmur.exe --debug`.
 
 ## Troubleshooting
 
@@ -122,6 +173,8 @@ Other commands:
 - **Music doesn't get quieter.** Check that Murmur is allowed under **Privacy & Security → Screen & System
   Audio Recording** (shown as audio capture).
 - **The first word is cut off.** Some USB mics take around 300 ms to start. Pause briefly after pressing the key.
+- **Windows: model missing.** Reinstall the bundled GGML edition to restore the model.
+- **Windows: nothing happens when holding Right Alt.** Allow microphone access and test in a non-elevated window.
 
 ## License
 
