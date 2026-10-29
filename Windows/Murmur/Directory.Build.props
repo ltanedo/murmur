@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <SpeechEdition Condition="'$(SpeechEdition)' == ''">Ggml</SpeechEdition>
+    <!-- Separate restore and compiler output prevents one edition leaking into the other. -->
+    <BaseIntermediateOutputPath>obj\$(SpeechEdition)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin\$(SpeechEdition)\</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

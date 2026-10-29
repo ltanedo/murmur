@@ -107,13 +107,13 @@ Other commands:
 | [`TextInserter.swift`](Sources/Murmur/TextInserter.swift) | Pastes with a synthetic <kbd>⌘V</kbd> and restores the clipboard. Without Accessibility the text is left on the clipboard instead |
 | [`AppDelegate.swift`](Sources/Murmur/AppDelegate.swift) | Menu bar item, settings and the dictation state machine |
 
-## Windows — bundled local GGML edition
+## Windows editions
 
 [Download Windows GGML](https://github.com/ltanedo/murmur/releases/tag/windows-ggml-v1.0.0.3) ·
 [Microsoft offline/cloud edition](https://github.com/ltanedo/murmur/releases/tag/windows-microsoft-v1.0.0.1) ·
 [Mac 0.1.0](https://github.com/ltanedo/murmur/releases/tag/v0.1.0)
 
-This branch is the standalone GGML edition. It bundles English Whisper `base.en` Q5_1 (~60 MB)
+The default build is the standalone GGML edition. It bundles English Whisper `base.en` Q5_1 (~60 MB)
 and runs it on the CPU through Whisper.net / whisper.cpp. Windows AI and Windows cloud speech engines
 are excluded from compilation. No model selection, Windows Update model download, account, or network
 connection is needed for dictation. Model loading ignores any engine preferences saved by older builds.
@@ -127,13 +127,27 @@ Add-AppxPackage -Path .\Murmur-ggml-signed.msix -DependencyPath .\Microsoft.Wind
 The release is signed as Lloyd Tanedo using Azure Artifact Signing, with Microsoft timestamps.
 The Windows runtime dependency is still required by this port's packaging. Both Windows editions share
 one package identity and are alternatives: installing one replaces the other. Switching to a lower
-package version requires uninstalling the existing edition first. Do not merge both edition PRs as-is;
-they intentionally implement alternative Windows applications in the same paths.
+package version requires uninstalling the existing edition first. Both editions now build from the same source tree using the build-time edition setting.
 
 Hold **Right Alt**, speak, then release to transcribe and type. Tap to toggle hands-free mode.
 Audio remains in memory; the model remains loaded between recordings. Sessions are limited to five
 minutes. Very short or silent captures are discarded; background noise may still cause incorrect text.
 Microphone permission is required. Transcripts are logged only if debug logging is explicitly enabled.
+
+### Microsoft offline/cloud edition
+
+Build with `-Edition Microsoft` to include the Windows engines instead of Whisper. This edition defaults
+to online dictation; uncheck **Use Online Dictation (restart required)** and restart for Windows AI local
+speech. Unsupported Windows AI systems fall back to online recognition with a notification.
+Local Windows AI speech requires Windows 11 24H2/build 26100 or later and a model download via Windows
+Update. Online speech requires the Windows speech privacy setting, an appropriate language pack, and
+organization policy permitting it; audio may be sent to Microsoft. Microphone permission is required.
+Neither GGML code nor the bundled model is included in the Microsoft build.
+
+Install `Murmur-microsoft-signed.msix` with the same runtime dependency using `Add-AppxPackage`.
+Microsoft live recognition remains unverified on this laptop: its Windows version is below the offline
+minimum and its policy disables online recognition. Builds and package generation are checked for both
+editions; the Mac application sources are unchanged.
 
 ### Build and validation
 
@@ -141,13 +155,21 @@ Use Windows x64 with the .NET 8 SDK (or a newer SDK supporting the .NET 8 target
 
 ```powershell
 .\Windows\fetch-model.ps1
-.\Windows\build.ps1                 # development certificate
+.\Windows\build.ps1 -Edition Ggml       # bundled GGML, development certificate
+.\Windows\build.ps1 -Edition Microsoft  # Microsoft engines, no model download
 # Publicly trusted release, using your Azure CLI login and signing metadata:
-.\Windows\release.ps1 -Version 1.0.0.3 -OutputName Murmur-ggml-signed -SigningMetadataPath C:\path\metadata.json
+.\Windows\release.ps1 -Edition Ggml -Version 1.0.0.3 -OutputName Murmur-ggml-signed -SigningMetadataPath C:\path\metadata.json
+.\Windows\release.ps1 -Edition Microsoft -Version 1.0.0.1 -OutputName Murmur-microsoft-signed -SigningMetadataPath C:\path\metadata.json
 # Native runtime and failure-path smoke checks:
 dotnet run --project Windows/LocalSpeechSmoke -c Release
 # Optional real-model check (whisper.cpp samples/jfk.wav, 16 kHz mono PCM16):
 dotnet run --project Windows/LocalSpeechSmoke -c Release -- Windows/Murmur/Models/speech-model.bin C:\path\jfk.wav
+```
+
+To check that the two publish directories contain only their intended engines and dependencies, run
+
+```powershell
+dotnet run --project Windows/EditionSmoke -c Release -- C:\path\ggml-publish C:\path\microsoft-publish
 ```
 
 `fetch-model.ps1` pins model revision `5359861c739e955e79d9a303bcbc70fb988958b1` and verifies SHA-256
@@ -161,7 +183,7 @@ smoke test, not a microphone accuracy benchmark. The original Mac sources are un
 ## Privacy
 
 - Mac audio and text are processed locally by Apple Speech.
-- This Windows edition processes audio locally with its bundled Whisper model. It never selects Windows
+- The GGML Windows edition processes audio locally with its bundled Whisper model. It never selects Windows
   online speech or uploads recordings. Audio is kept in memory for the current recording.
 - Debug logging is off by default. If enabled, it records transcripts. Mac logging can be enabled with
   `defaults write app.murmur.dictation debugLogging -bool true`; Windows uses `Murmur.exe --debug`.

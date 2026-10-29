@@ -11,8 +11,13 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
+#if MICROSOFT_SPEECH
+    private ISpeechEngine _engine = Settings.UseOnlineSpeech
+        ? new OnlineSpeechEngine() : new OnDeviceSpeechEngine();
+#else
     private readonly ISpeechEngine _engine = new LocalSpeechEngine(
         Path.Combine(AppContext.BaseDirectory, "Models", "speech-model.bin"));
+#endif
     private readonly Overlay _overlay = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _statusLine;
@@ -57,6 +62,16 @@ sealed class TrayApp : ApplicationContext
         menu.Items.Add(_statusLine);
         menu.Items.Add(_engineLine);
         menu.Items.Add(new ToolStripSeparator());
+#if MICROSOFT_SPEECH
+        var onlineItem = new ToolStripMenuItem("Use Online Dictation (restart required)")
+        {
+            Checked = Settings.UseOnlineSpeech, CheckOnClick = true,
+            ToolTipText = "Uses Microsoft's speech service. Audio may be sent to Microsoft."
+        };
+        onlineItem.CheckedChanged += (_, _) => Settings.UseOnlineSpeech = onlineItem.Checked;
+        menu.Items.Add(onlineItem);
+        menu.Items.Add("Speech Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-speech"));
+#endif
         menu.Items.Add(_cleanupItem);
         menu.Items.Add("Microphone Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-microphone"));
         menu.Items.Add(new ToolStripSeparator());
@@ -76,13 +91,26 @@ sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>
-    /// Loads the bundled local model. This build has no Windows AI or online fallback.
+    /// Loads the edition's engine. Only the Microsoft edition can fall back to online speech.
     /// </summary>
     private async Task PrepareAsync()
     {
         try
         {
+#if MICROSOFT_SPEECH
+            try { await PrepareEngineAsync(); }
+            catch (EngineNotSupportedException e) when (_engine is OnDeviceSpeechEngine)
+            {
+                _engine.Dispose();
+                _engine = new OnlineSpeechEngine();
+                await PrepareEngineAsync();
+                _tray.ShowBalloonTip(8_000, "Murmur is using online dictation",
+                    $"{e.Message} Windows' online dictation is used instead; audio may be sent to Microsoft.",
+                    ToolTipIcon.Info);
+            }
+#else
             await PrepareEngineAsync();
+#endif
             _engineLine.Text = $"Engine: {_engine.Label}";
             SetStatus("Hold Right Alt to dictate · tap to toggle");
             CurrentState = State.Idle;

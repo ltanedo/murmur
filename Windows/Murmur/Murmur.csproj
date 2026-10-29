@@ -39,9 +39,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Whisper.net" Version="1.9.1" />
-    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
+    <PackageReference Include="NAudio" Version="2.2.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
     <!-- Experimental channel: Microsoft.Windows.AI.Speech only ships in experimental releases so far. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.4-experimental" />
     <!-- Only for makeappx.exe and signtool.exe, which build.ps1 finds in the NuGet cache. -->
@@ -51,9 +51,18 @@
   <ItemGroup>
     <None Include="Package.appxmanifest" />
     <None Include="Assets\*.png" />
-    <Compile Remove="OnDeviceSpeechEngine.cs;OnlineSpeechEngine.cs" />
-    <Content Include="Models\speech-model.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="Notices\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Compile Remove="OnDeviceSpeechEngine.cs;OnlineSpeechEngine.cs" Condition="'$(SpeechEdition)' == 'Ggml'" />
+    <Compile Remove="LocalSpeechEngine.cs" Condition="'$(SpeechEdition)' == 'Microsoft'" />
+    <Content Include="Models\speech-model.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(SpeechEdition)' == 'Ggml'" />
+    <Content Include="Notices\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(SpeechEdition)' == 'Ggml'" />
   </ItemGroup>
+
+  <PropertyGroup Condition="'$(SpeechEdition)' == 'Microsoft'">
+    <DefineConstants>$(DefineConstants);MICROSOFT_SPEECH</DefineConstants>
+  </PropertyGroup>
+  <Target Name="ValidateSpeechEdition" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(SpeechEdition)' != 'Ggml' and '$(SpeechEdition)' != 'Microsoft'" Text="SpeechEdition must be Ggml or Microsoft." />
+    <Error Condition="'$(SpeechEdition)' == 'Ggml' and !Exists('Models\speech-model.bin')" Text="Run Windows/fetch-model.ps1 before building the GGML edition." />
+  </Target>
 
 </Project>

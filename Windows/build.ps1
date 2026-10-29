@@ -8,13 +8,13 @@
 # makeappx.exe and signtool.exe come from the Microsoft.Windows.SDK.BuildTools NuGet package that the
 # project references, so no Visual Studio or Windows SDK install is needed.
 [CmdletBinding()]
-param([switch]$Install, [switch]$LayoutOnly)
+param([switch]$Install, [switch]$LayoutOnly, [ValidateSet('Ggml', 'Microsoft')][string]$Edition = 'Ggml')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $projectDir = Join-Path $root 'Windows\Murmur'
 $project = Join-Path $projectDir 'Murmur.csproj'
-$layout = Join-Path $projectDir 'bin\msix\layout'
+$layout = Join-Path $projectDir "bin\msix\$Edition\layout"
 $dist = Join-Path $root 'dist\windows'
 $msix = Join-Path $dist 'Murmur.msix'
 $certSubject = 'CN=Murmur Developer'   # must match Identity/@Publisher in Package.appxmanifest
@@ -24,8 +24,10 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 }
 
 # 1. Publish the app (self-contained .NET, framework-dependent Windows App Runtime) into the package layout.
-if (Test-Path $layout) { Remove-Item -Recurse -Force $layout }
-dotnet publish $project -c Release -r win-x64 -o $layout
+$layout = [IO.Path]::GetFullPath($layout)
+if (-not $layout.StartsWith([IO.Path]::GetFullPath($projectDir) + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Layout is outside the project directory' }
+if (Test-Path -LiteralPath $layout) { Remove-Item -LiteralPath $layout -Recurse -Force }
+dotnet publish $project -c Release -r win-x64 -p:SpeechEdition=$Edition -o $layout
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Copy-Item (Join-Path $projectDir 'Package.appxmanifest') (Join-Path $layout 'AppxManifest.xml')
 New-Item -ItemType Directory -Force (Join-Path $layout 'Assets') | Out-Null

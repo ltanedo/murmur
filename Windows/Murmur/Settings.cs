@@ -7,6 +7,12 @@ static class Settings
 {
     private const string KeyPath = @"Software\Murmur";
 
+    public static bool UseOnlineSpeech
+    {
+        get => ReadBool("useOnlineSpeech", true);
+        set => Write("useOnlineSpeech", value);
+    }
+
     public static bool Cleanup
     {
         get => ReadBool("cleanup", true);
