@@ -11,8 +11,13 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
+#if MICROSOFT_SPEECH
     private ISpeechEngine _engine = Settings.UseOnlineSpeech
         ? new OnlineSpeechEngine() : new OnDeviceSpeechEngine();
+#else
+    private readonly ISpeechEngine _engine = new LocalSpeechEngine(
+        Path.Combine(AppContext.BaseDirectory, "Models", "speech-model.bin"));
+#endif
     private readonly Overlay _overlay = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _statusLine;
@@ -57,6 +62,7 @@ sealed class TrayApp : ApplicationContext
         menu.Items.Add(_statusLine);
         menu.Items.Add(_engineLine);
         menu.Items.Add(new ToolStripSeparator());
+#if MICROSOFT_SPEECH
         var onlineItem = new ToolStripMenuItem("Use Online Dictation (restart required)")
         {
             Checked = Settings.UseOnlineSpeech, CheckOnClick = true,
@@ -64,8 +70,9 @@ sealed class TrayApp : ApplicationContext
         };
         onlineItem.CheckedChanged += (_, _) => Settings.UseOnlineSpeech = onlineItem.Checked;
         menu.Items.Add(onlineItem);
-        menu.Items.Add(_cleanupItem);
         menu.Items.Add("Speech Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-speech"));
+#endif
+        menu.Items.Add(_cleanupItem);
         menu.Items.Add("Microphone Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-microphone"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quit Murmur", null, (_, _) => ExitThread());
@@ -84,20 +91,16 @@ sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>
-    /// Gets the on-device engine ready; if this PC can't run it, falls back to Windows' online
-    /// dictation and says so in the menu.
+    /// Loads the edition's engine. Only the Microsoft edition can fall back to online speech.
     /// </summary>
     private async Task PrepareAsync()
     {
         try
         {
-            try
+#if MICROSOFT_SPEECH
+            try { await PrepareEngineAsync(); }
+            catch (EngineNotSupportedException e) when (_engine is OnDeviceSpeechEngine)
             {
-                await PrepareEngineAsync();
-            }
-            catch (EngineNotSupportedException e) when (_engine.IsOnDevice)
-            {
-                Log.Write($"on-device engine unavailable, falling back: {e.Message}");
                 _engine.Dispose();
                 _engine = new OnlineSpeechEngine();
                 await PrepareEngineAsync();
@@ -105,9 +108,10 @@ sealed class TrayApp : ApplicationContext
                     $"{e.Message} Windows' online dictation is used instead; audio may be sent to Microsoft.",
                     ToolTipIcon.Info);
             }
-            _engineLine.Text = _engine.IsOnDevice
-                ? "Engine: On-device (Windows AI speech)"
-                : "Engine: Online dictation (Windows speech service)";
+#else
+            await PrepareEngineAsync();
+#endif
+            _engineLine.Text = $"Engine: {_engine.Label}";
             SetStatus("Hold Right Alt to dictate · tap to toggle");
             CurrentState = State.Idle;
         }

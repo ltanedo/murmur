@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory)][string]$SigningMetadataPath,
     [Parameter(Mandatory)][version]$Version,
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9-]+$')][string]$OutputName,
+    [ValidateSet('Ggml', 'Microsoft')][string]$Edition = 'Ggml',
     [string]$AzureConfigDir = (Join-Path $env:USERPROFILE '.config\azure-personal'),
     [string]$SigningClientVersion = '1.0.146'
 )
@@ -15,7 +16,7 @@ $layout = Join-Path $dist ('release-layout-' + [guid]::NewGuid().ToString('N'))
 $toolsDir = Join-Path $root "dist\artifact-signing-$SigningClientVersion"
 $nuget = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
 New-Item -ItemType Directory -Force $dist | Out-Null
-dotnet publish (Join-Path $PSScriptRoot 'Murmur\Murmur.csproj') -c Release -r win-x64 -o $layout
+dotnet publish (Join-Path $PSScriptRoot 'Murmur\Murmur.csproj') -c Release -r win-x64 -p:SpeechEdition=$Edition -o $layout
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
 Copy-Item (Join-Path $PSScriptRoot 'Murmur\Package.appxmanifest') (Join-Path $layout 'AppxManifest.xml')
 New-Item -ItemType Directory -Force (Join-Path $layout 'Assets') | Out-Null
