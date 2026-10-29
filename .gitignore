@@ -7,3 +7,5 @@ bin/
 obj/
 *.user
 .vs/
+Windows/Murmur/Models/*.bin
+Windows/Murmur/Models/*.download

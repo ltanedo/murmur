@@ -11,7 +11,8 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
-    private ISpeechEngine _engine = new OnDeviceSpeechEngine();
+    private readonly ISpeechEngine _engine = new LocalSpeechEngine(
+        Path.Combine(AppContext.BaseDirectory, "Models", "speech-model.bin"));
     private readonly Overlay _overlay = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _statusLine;
@@ -57,7 +58,6 @@ sealed class TrayApp : ApplicationContext
         menu.Items.Add(_engineLine);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_cleanupItem);
-        menu.Items.Add("Speech Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-speech"));
         menu.Items.Add("Microphone Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-microphone"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quit Murmur", null, (_, _) => ExitThread());
@@ -76,30 +76,14 @@ sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>
-    /// Gets the on-device engine ready; if this PC can't run it, falls back to Windows' online
-    /// dictation and says so in the menu.
+    /// Loads the bundled local model. This build has no Windows AI or online fallback.
     /// </summary>
     private async Task PrepareAsync()
     {
         try
         {
-            try
-            {
-                await PrepareEngineAsync();
-            }
-            catch (EngineNotSupportedException e)
-            {
-                Log.Write($"on-device engine unavailable, falling back: {e.Message}");
-                _engine.Dispose();
-                _engine = new OnlineSpeechEngine();
-                await PrepareEngineAsync();
-                _tray.ShowBalloonTip(8_000, "Murmur is using online dictation",
-                    $"{e.Message} Windows' online dictation is used instead; audio may be sent to Microsoft.",
-                    ToolTipIcon.Info);
-            }
-            _engineLine.Text = _engine.IsOnDevice
-                ? "Engine: On-device (Windows AI speech)"
-                : "Engine: Online dictation (Windows speech service)";
+            await PrepareEngineAsync();
+            _engineLine.Text = $"Engine: {_engine.Label}";
             SetStatus("Hold Right Alt to dictate · tap to toggle");
             CurrentState = State.Idle;
         }

@@ -39,6 +39,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
     <!-- Experimental channel: Microsoft.Windows.AI.Speech only ships in experimental releases so far. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.4-experimental" />
     <!-- Only for makeappx.exe and signtool.exe, which build.ps1 finds in the NuGet cache. -->
@@ -48,6 +51,9 @@
   <ItemGroup>
     <None Include="Package.appxmanifest" />
     <None Include="Assets\*.png" />
+    <Compile Remove="OnDeviceSpeechEngine.cs;OnlineSpeechEngine.cs" />
+    <Content Include="Models\speech-model.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Notices\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
