@@ -1,0 +1,16 @@
+{
+  "ExcludeCredentials": [
+    "EnvironmentCredential",
+    "ManagedIdentityCredential",
+    "WorkloadIdentityCredential",
+    "SharedTokenCacheCredential",
+    "VisualStudioCredential",
+    "VisualStudioCodeCredential",
+    "AzurePowerShellCredential",
+    "AzureDeveloperCliCredential",
+    "InteractiveBrowserCredential"
+  ],
+  "CodeSigningAccountName": "YOUR-ACCOUNT",
+  "CertificateProfileName": "YOUR-PROFILE",
+  "Endpoint": "https://eus.codesigning.azure.net/"
+}

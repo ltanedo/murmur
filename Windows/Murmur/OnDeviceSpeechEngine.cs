@@ -30,6 +30,8 @@ sealed class OnDeviceSpeechEngine : ISpeechEngine
 
     public async Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status)
     {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 26100))
+            throw new EngineNotSupportedException("Windows AI speech requires Windows 11 24H2 (build 26100) or later.");
         SpeechRecognitionModelFactory factory;
         AIFeatureReadyState state;
         try

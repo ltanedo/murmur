@@ -107,117 +107,39 @@ Other commands:
 | [`TextInserter.swift`](Sources/Murmur/TextInserter.swift) | Pastes with a synthetic <kbd>⌘V</kbd> and restores the clipboard. Without Accessibility the text is left on the clipboard instead |
 | [`AppDelegate.swift`](Sources/Murmur/AppDelegate.swift) | Menu bar item, settings and the dictation state machine |
 
-## Windows
+## Windows release editions
 
-The Windows port lives in [`Windows/`](Windows/) and is a small .NET tray app. It does the same job: hold
-<kbd>Right Alt</kbd>, talk, let go, and the text is typed into whatever has focus.
+[Microsoft offline/cloud release](https://github.com/ltanedo/murmur/releases/tag/windows-microsoft-v1.0.0.1) ·
+[Bundled GGML release](https://github.com/ltanedo/murmur/releases/tag/windows-ggml-v1.0.0.3) ·
+[Mac 0.1.0](https://github.com/ltanedo/murmur/releases/tag/v0.1.0)
 
-> **Experimental.** The Windows build uses the Windows AI speech recognition API
-> (`Microsoft.Windows.AI.Speech`), which Microsoft ships only in the *experimental* channel of the Windows App
-> SDK. It is English-only in the current preview, not supported for production, and apps that use it must not be
-> published to the Microsoft Store. Expect the API, and this build, to change.
+This branch defaults to **Microsoft online dictation**. Audio may be sent to Microsoft. Uncheck
+**Use Online Dictation (restart required)** in the tray menu and restart to request Windows AI local
+speech. Local speech needs Windows 11 24H2/build 26100 or later and an optional model downloaded through
+Windows Update. If Windows AI is unsupported, the app falls back to online speech and notifies you.
+Online recognition requires the Windows speech privacy setting and a supported speech language pack;
+organization policy may prohibit it. This edition contains no Whisper model.
 
-### Speech engines
-
-| Engine | When it's used | Where audio goes |
-| --- | --- | --- |
-| **On-device** (`Microsoft.Windows.AI.Speech`) | Whenever this PC can run it | Nowhere. The model runs on the NPU of a Copilot+ PC or on the CPU. No key, no account, no Azure. |
-| **Online dictation** (`Windows.Media.SpeechRecognition.SpeechRecognizer`) | Only when the on-device model reports *not supported on this system* | Handled by Windows' own dictation, which may send audio to Microsoft's speech service. |
-
-The tray menu always shows which one is active (*Engine: On-device* or *Engine: Online dictation*), and Murmur
-shows a notification if it had to fall back.
-
-### Requirements
-
-- Windows 11, version 24H2 (build 26100) or later, for the on-device engine. The fallback runs on Windows 10
-  2004 and later.
-- A Copilot+ PC with an NPU (model preinstalled), or any x64 PC. On a CPU-only PC Microsoft recommends 4+ cores,
-  a 3 GHz base clock and 32 MB of L3 cache for real-time use; the model is an optional download.
-- Windows App Runtime 2.5.4-experimental (the build script installs it for you).
-- .NET 8 SDK to build. Nothing else: the Windows SDK tools come from NuGet.
-
-### Speech model and language pack
-
-**On-device engine.** The first time Murmur starts on a CPU-only PC, it asks for permission to download the
-*speech recognition model*, which Windows fetches in the background through Windows Update. You can watch
-progress under **Settings → Windows Update** and remove the model later under **Settings → System → AI
-components**. On Copilot+ PCs the model is already there. The preview model recognises English only.
-
-**Online dictation fallback.** If Murmur reports *Online dictation*, Windows' dictation needs:
-
-1. The **speech language pack** for your Windows speech language: **Settings → Time & language → Language &
-   region → … → Language options → Speech → Basic speech recognition**. Check *Speech language* under
-   **Settings → Time & language → Speech**.
-2. **Online speech recognition** turned on under **Settings → Privacy & security → Speech**. Windows refuses to
-   start the dictation grammar while it is off, and Murmur says so in its tray menu.
-
-In both cases, allow Murmur under **Settings → Privacy & security → Microphone**.
-
-### Build and install
-
-Install the .NET 8 SDK (`winget install Microsoft.DotNet.SDK.8`), then from the repository root:
+The signed release includes the app and its Microsoft Windows App Runtime dependency. Download both
+MSIX assets to the same folder and install with:
 
 ```powershell
-.\Windows\build.ps1             # publishes the app, packs dist\windows\Murmur.msix and signs it with a dev certificate
-.\Windows\build.ps1 -Install    # also installs the Windows App Runtime (experimental) and Murmur for your user
+Add-AppxPackage -Path .\Murmur-microsoft-signed.msix -DependencyPath .\Microsoft.WindowsAppRuntime.2-experimentalF.msix
 ```
 
-The app has to run as an MSIX package: the Windows AI APIs require package identity and the `systemAIModels`
-capability, which [`Package.appxmanifest`](Windows/Murmur/Package.appxmanifest) declares together with
-`microphone` and `runFullTrust`. The script builds the package with `makeappx` and `signtool` from the
-`Microsoft.Windows.SDK.BuildTools` NuGet package, so Visual Studio is not needed. The Windows App Runtime
-framework package comes from the `Microsoft.WindowsAppSDK.Runtime` NuGet package.
+Both Windows editions have one package identity; installing one replaces the other. Switching to a lower
+version requires uninstalling the other edition first. These PRs are alternative Windows implementations,
+not two changes to merge unchanged. The Mac application is unchanged.
 
-Installing a locally built package needs one of:
+For a publicly trusted build, after Azure CLI login and preparing signing metadata, use:
 
-- **Developer Mode** (**Settings → System → For developers**): the script registers the loose layout
-  directly, no certificate involved.
-- Otherwise the script creates a self-signed *Murmur Developer* certificate in your user store, signs the
-  package with it and adds it to your user's Trusted Root store. Windows shows a confirmation dialog for that
-  once. Nothing is written to the machine-wide stores and no admin rights are needed.
+```powershell
+.\Windows\release.ps1 -Version 1.0.0.1 -OutputName Murmur-microsoft-signed -SigningMetadataPath C:\path\metadata.json
+```
 
-The certificate's private key never leaves your Windows certificate store and no secrets are in the repository.
-
-### Usage
-
-| Action | What happens |
-| --- | --- |
-| Hold <kbd>Right Alt</kbd>, talk, release | Text is typed at the cursor |
-| Tap <kbd>Right Alt</kbd>, talk, tap again | Hands-free dictation |
-| <kbd>Right Alt</kbd> + another key | Normal shortcut (Alt+Tab, AltGr+E…); dictation is cancelled |
-
-Right-click the tray icon for the menu:
-
-- **Engine:** which speech engine is active (see above).
-- **Clean Up Filler Words:** removes "um", "uh", "er", "hmm" and repeated words with a small set of rules
-  (Windows has no on-device language model in the box, so this is simpler than the Mac version).
-- **Speech Settings… / Microphone Settings…:** jump to the relevant Windows privacy pages.
-- `Murmur.exe --demo-overlay` plays the on-screen indicator; `Murmur.exe --debug` writes a log with transcripts
-  to `%LOCALAPPDATA%\Murmur\Murmur.log` (inside the package's virtualised AppData when installed).
-
-### Differences from the Mac app
-
-- Text is typed with synthetic Unicode key events instead of pasting, so the clipboard is untouched. If the
-  focused window runs as administrator and Murmur doesn't, Windows blocks the keystrokes; the text is then put
-  on the clipboard and the tray menu says so.
-- There is no audio ducking yet.
-- The live indicator shows a dot that grows while the recognizer hears speech, rather than a level meter,
-  because the speech APIs own the microphone and don't expose the raw audio.
-- The on-device model is English-only in the preview.
-
-### How it works (Windows)
-
-| File | Role |
-| --- | --- |
-| [`HotKey.cs`](Windows/Murmur/HotKey.cs) | Low-level keyboard hook watching <kbd>Right Alt</kbd> for press, release and use in shortcuts |
-| [`ISpeechEngine.cs`](Windows/Murmur/ISpeechEngine.cs) | The engine contract: prepare, start, stop with transcript, cancel |
-| [`OnDeviceSpeechEngine.cs`](Windows/Murmur/OnDeviceSpeechEngine.cs) | `SpeechRecognitionModelFactory.Default` → `GetReadyState` → `EnsureReadyAsync` (with consent) → `CreateAsync`, then a `StreamingRecognition` on the default microphone while the key is held; final phrases plus the last partial become the transcript |
-| [`OnlineSpeechEngine.cs`](Windows/Murmur/OnlineSpeechEngine.cs) | Fallback on `Windows.Media.SpeechRecognition` with a dictation constraint |
-| [`Overlay.cs`](Windows/Murmur/Overlay.cs) | The floating, click-through, non-activating indicator |
-| [`Cleanup.cs`](Windows/Murmur/Cleanup.cs) | Rule-based filler-word removal |
-| [`TextInserter.cs`](Windows/Murmur/TextInserter.cs) | Types the text with `SendInput` Unicode events; falls back to the clipboard |
-| [`TrayApp.cs`](Windows/Murmur/TrayApp.cs) | Tray icon, engine selection, settings and the dictation state machine |
-| [`Package.appxmanifest`](Windows/Murmur/Package.appxmanifest) / [`build.ps1`](Windows/build.ps1) | MSIX identity, capabilities and the Windows App Runtime dependency; publish, pack, sign, install |
+The release script signs the application and MSIX, timestamps both, and verifies their signatures.
+The .NET build and signing are tested. End-to-end microphone recognition is unverified on this laptop:
+its Windows build is below the local AI minimum, and its policy disables online recognition.
 
 ## Privacy
 

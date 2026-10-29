@@ -11,7 +11,8 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
-    private ISpeechEngine _engine = new OnDeviceSpeechEngine();
+    private ISpeechEngine _engine = Settings.UseOnlineSpeech
+        ? new OnlineSpeechEngine() : new OnDeviceSpeechEngine();
     private readonly Overlay _overlay = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _statusLine;
@@ -56,6 +57,13 @@ sealed class TrayApp : ApplicationContext
         menu.Items.Add(_statusLine);
         menu.Items.Add(_engineLine);
         menu.Items.Add(new ToolStripSeparator());
+        var onlineItem = new ToolStripMenuItem("Use Online Dictation (restart required)")
+        {
+            Checked = Settings.UseOnlineSpeech, CheckOnClick = true,
+            ToolTipText = "Uses Microsoft's speech service. Audio may be sent to Microsoft."
+        };
+        onlineItem.CheckedChanged += (_, _) => Settings.UseOnlineSpeech = onlineItem.Checked;
+        menu.Items.Add(onlineItem);
         menu.Items.Add(_cleanupItem);
         menu.Items.Add("Speech Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-speech"));
         menu.Items.Add("Microphone Settings…", null, (_, _) => OpenSettings("ms-settings:privacy-microphone"));
@@ -87,7 +95,7 @@ sealed class TrayApp : ApplicationContext
             {
                 await PrepareEngineAsync();
             }
-            catch (EngineNotSupportedException e)
+            catch (EngineNotSupportedException e) when (_engine.IsOnDevice)
             {
                 Log.Write($"on-device engine unavailable, falling back: {e.Message}");
                 _engine.Dispose();
