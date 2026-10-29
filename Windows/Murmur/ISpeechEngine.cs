@@ -21,6 +21,9 @@ interface ISpeechEngine : IDisposable
     /// <summary>Fires when the engine hears speech start or stop, for the on-screen indicator.</summary>
     Action<bool>? OnSound { get; set; }
 
+    /// <summary>Signals that the microphone has stopped, before transcription finishes. May run on a capture thread.</summary>
+    Action? OnCaptureStopped { get; set; }
+
     /// <summary>Loads models, downloads them if the user agrees, and leaves the engine ready to start instantly.</summary>
     Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status);
 

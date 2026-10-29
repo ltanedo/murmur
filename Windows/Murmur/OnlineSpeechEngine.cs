@@ -25,6 +25,7 @@ sealed class OnlineSpeechEngine : ISpeechEngine
 
     public Language? Language { get; private set; }
     public Action<bool>? OnSound { get; set; }
+    public Action? OnCaptureStopped { get; set; }
 
     /// <summary>Creates the recognizer for the Windows speech language and compiles the dictation grammar.</summary>
     public async Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status)
@@ -156,6 +157,7 @@ sealed class OnlineSpeechEngine : ISpeechEngine
             completed = _completed;
         }
         completed?.TrySetResult();
+        OnCaptureStopped?.Invoke();
     }
 
     private void OnStateChanged(SpeechRecognizer sender, SpeechRecognizerStateChangedEventArgs args)

@@ -11,6 +11,11 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
+    private readonly AudioDucker _ducker = new(WindowsPlaybackSessions.Enumerate, Environment.ProcessId, Log.Write);
+    private readonly RecordingFeedback _feedback;
+    private readonly System.Windows.Forms.Timer _audioRefresh = new() { Interval = 250 };
+    private bool _exiting;
+    private int _recordingGeneration;
 #if MICROSOFT_SPEECH
     private ISpeechEngine _engine = Settings.UseOnlineSpeech
         ? new OnlineSpeechEngine() : new OnDeviceSpeechEngine();
@@ -52,6 +57,9 @@ sealed class TrayApp : ApplicationContext
     public TrayApp(string[] args)
     {
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        _feedback = new RecordingFeedback(_ducker, new RecordingSounds());
+        _audioRefresh.Tick += (_, _) => _ducker.Refresh();
+        _audioRefresh.Start();
 
         _statusLine = new ToolStripMenuItem("Starting…") { Enabled = false };
         _engineLine = new ToolStripMenuItem("Engine: starting…") { Enabled = false };
@@ -82,9 +90,10 @@ sealed class TrayApp : ApplicationContext
 
 
         _hotKey = new HotKey();
-        _hotKey.OnPress = HotKeyPressed;
-        _hotKey.OnRelease = HotKeyReleased;
-        _hotKey.OnCancel = CancelDictation;
+        // Keep COM/audio setup out of the low-level keyboard hook to avoid hook timeouts.
+        _hotKey.OnPress = () => _ui.Post(_ => { if (!_exiting) HotKeyPressed(); }, null);
+        _hotKey.OnRelease = () => _ui.Post(_ => { if (!_exiting) HotKeyReleased(); }, null);
+        _hotKey.OnCancel = () => _ui.Post(_ => { if (!_exiting) CancelDictation(); }, null);
 
         if (args.Contains("--demo-overlay")) DemoOverlay();
         _ = PrepareAsync();
@@ -126,7 +135,7 @@ sealed class TrayApp : ApplicationContext
 
     private Task PrepareEngineAsync()
     {
-        _engine.OnSound = speaking => _ui.Post(_ => _overlay.SetSpeaking(speaking), null);
+        _engine.OnSound = speaking => _ui.Post(_ => { if (!_exiting) _overlay.SetSpeaking(speaking); }, null);
         return _engine.PrepareAsync(AskUserAsync, SetStatus);
     }
 
@@ -193,14 +202,24 @@ sealed class TrayApp : ApplicationContext
         CurrentState = State.Starting;
         _stopRequested = false;
         _cancelRequested = false;
+        var generation = ++_recordingGeneration;
+        _engine.OnCaptureStopped = () => _ui.Post(_ =>
+        {
+            if (!_exiting && generation == _recordingGeneration) _feedback.CaptureEnded();
+        }, null);
         try
         {
+            _feedback.Begin();
             await _engine.StartAsync();
+            if (_exiting) return;
             CurrentState = State.Recording;
+            _feedback.Started();
             if (_stopRequested) StopDictation();
         }
         catch (Exception e)
         {
+            _feedback.CaptureEnded();
+            if (_exiting) return;
             Log.Write($"start error: {e}");
             SetStatus($"Error: {e.Message}");
             _tray.ShowBalloonTip(5_000, "Murmur", e.Message, ToolTipIcon.Warning);
@@ -218,6 +237,7 @@ sealed class TrayApp : ApplicationContext
 
     private async void StopDictation()
     {
+        _feedback.StopRequested();
         if (CurrentState != State.Recording)
         {
             _stopRequested = true; // released while the recognizer was still starting up
@@ -237,9 +257,11 @@ sealed class TrayApp : ApplicationContext
             {
                 // Keep listening briefly so the last word isn't clipped by letting go of the key.
                 await Task.Delay(TrailingAudio);
+                if (_exiting) return;
                 _overlay.Show(Overlay.Mode.Processing);
                 text = await _engine.StopAsync();
             }
+            if (_exiting) return;
             Log.Write($"transcript: \"{text}\" cancelled={_cancelRequested}");
             if (Settings.Cleanup && text.Length > 0) text = Cleanup.Polish(text);
             if (text.Length > 0 && !TextInserter.Insert(text))
@@ -248,9 +270,10 @@ sealed class TrayApp : ApplicationContext
         catch (Exception e)
         {
             Log.Write($"stop error: {e}");
-            SetStatus($"Error: {e.Message}");
+            if (!_exiting) SetStatus($"Error: {e.Message}");
         }
-        CurrentState = State.Idle;
+        finally { if (!_exiting) _feedback.CaptureEnded(); }
+        if (!_exiting) CurrentState = State.Idle;
     }
 
     // MARK: Tray
@@ -290,6 +313,10 @@ sealed class TrayApp : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _exiting = true;
+        _audioRefresh.Stop();
+        _audioRefresh.Dispose();
+        _feedback.Dispose(); // restore playback even if engine shutdown fails
         _tray.Visible = false;
         _hotKey.Dispose();
         _engine.Dispose();

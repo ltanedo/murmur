@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Murmur/AudioDucker.cs" Link="AudioDucker.cs" />
+    <Compile Include="../Murmur/WindowsPlaybackSessions.cs" Link="WindowsPlaybackSessions.cs" />
+    <Compile Include="../Murmur/RecordingFeedback.cs" Link="RecordingFeedback.cs" />
+    <Compile Include="../Murmur/RecordingSounds.cs" Link="RecordingSounds.cs" />
+    <Compile Include="../Murmur/Log.cs" Link="Log.cs" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+</Project>

@@ -22,6 +22,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     public string Label => "Local Whisper (English, offline)";
     public bool IsOnDevice => true;
     public Action<bool>? OnSound { get; set; }
+    public Action? OnCaptureStopped { get; set; }
 
     public async Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status)
     {
@@ -87,6 +88,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     {
         lock (_gate) _captureError = e.Exception;
         _stopped?.TrySetResult();
+        OnCaptureStopped?.Invoke();
     }
 
     private async Task EndCaptureAsync()

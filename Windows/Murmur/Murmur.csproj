@@ -41,7 +41,7 @@
   <ItemGroup>
     <PackageReference Include="Whisper.net" Version="1.9.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
-    <PackageReference Include="NAudio" Version="2.2.1" Condition="'$(SpeechEdition)' == 'Ggml'" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
     <!-- Experimental channel: Microsoft.Windows.AI.Speech only ships in experimental releases so far. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.4-experimental" />
     <!-- Only for makeappx.exe and signtool.exe, which build.ps1 finds in the NuGet cache. -->

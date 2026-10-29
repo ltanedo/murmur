@@ -20,6 +20,7 @@ sealed class OnDeviceSpeechEngine : ISpeechEngine
     public string Label => "On-device";
     public bool IsOnDevice => true;
     public Action<bool>? OnSound { get; set; }
+    public Action? OnCaptureStopped { get; set; }
 
     private SpeechRecognitionModel? _model;
     private StreamingRecognition? _recognition;
@@ -127,6 +128,7 @@ sealed class OnDeviceSpeechEngine : ISpeechEngine
         try
         {
             await recognition.StopContinuousRecognitionAsync();
+            OnCaptureStopped?.Invoke();
             // Give the engine a moment to turn the last partial result into a final one.
             if (flushed is not null) await Task.WhenAny(flushed.Task, Task.Delay(TimeSpan.FromMilliseconds(1500)));
         }
@@ -137,6 +139,7 @@ sealed class OnDeviceSpeechEngine : ISpeechEngine
         finally
         {
             Release(recognition);
+            OnCaptureStopped?.Invoke();
         }
         lock (_gate)
         {
@@ -170,6 +173,7 @@ sealed class OnDeviceSpeechEngine : ISpeechEngine
         finally
         {
             Release(recognition);
+            OnCaptureStopped?.Invoke();
         }
     }
 
