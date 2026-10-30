@@ -144,9 +144,11 @@ requires initializing the new device on the next recording.
 While dictating in the GGML edition, the floating overlay shows a provisional live transcript
 on a single horizontal line. Text scrolls left as new words arrive, keeping the latest words
 in view without growing taller or wrapping. Scrolling animation ticks every 16 ms.
-It re-decodes the latest eight seconds of audio, waiting 250 ms between completed attempts; actual
-updates also depend on CPU inference time. Earlier words can change, and long recordings show only
-the recent text. The preview never types into the active app. Releasing Right Alt (or stopping
+It re-decodes the current phrase, waiting 250 ms between completed attempts; actual
+updates also depend on CPU inference time. A half-second quiet pause closes a phrase, preserving
+its text while the next phrase updates. Uninterrupted phrases are split at 30 seconds to bound work.
+Words in the current phrase can change; completed phrases remain in order. The preview never types
+into the active app. Releasing Right Alt (or stopping
 hands-free mode) cancels preview work and transcribes the full recording before inserting text.
 Cancelling dictation clears the preview and inserts nothing. This uses the same local model, with
 one decode at a time and no idle recording, but uses more CPU while listening. Microsoft and Mac

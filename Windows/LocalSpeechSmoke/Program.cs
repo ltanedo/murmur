@@ -40,6 +40,26 @@ if (streamed.Text != "" || streamed.Advance()) throw new Exception("Blank hypoth
 streamed.Update("cancel this"); streamed.Clear();
 if (streamed.Text != "" || streamed.Advance()) throw new Exception("Clear left pending words");
 Console.WriteLine("PASS: word reveal, revisions, rolling overlap, burst catch-up and clearing.");
+var phrases = new PreviewPhrases();
+var phraseAudio = new List<float>();
+var expectedPhrases = new List<string>();
+for (var sentence = 1; sentence <= 6; sentence++)
+{
+    phraseAudio.AddRange(new float[16000]);
+    phrases.Observe(phraseAudio.Count, 16000, true);
+    if (phrases.Snapshot(phraseAudio).Length != 16000) throw new Exception("Phrase start was lost");
+    phrases.Complete("provisional words");
+    phraseAudio.AddRange(new float[8000]);
+    phrases.Observe(phraseAudio.Count, 8000, false);
+    if (phrases.Snapshot(phraseAudio).Length != 24000) throw new Exception("Pause boundary lost audio");
+    expectedPhrases.Add($"Sentence {sentence}.");
+    if (phrases.Complete(expectedPhrases[^1]) != string.Join(" ", expectedPhrases))
+        throw new Exception("Completed sentences were lost, repeated or reordered");
+}
+var longPhrase = new PreviewPhrases();
+if (longPhrase.Snapshot(new List<float>(new float[16000 * 35])).Length != 16000 * 30)
+    throw new Exception("Uninterrupted preview exceeded audio bound");
+Console.WriteLine("PASS: six successive phrases retain order; provisional corrections and bounded audio.");
 var decodeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var decodeCancelled = false;
 var published = 0;
@@ -146,6 +166,22 @@ if (args.Length >= 2)
     Console.WriteLine($"Transcription ({samples.Length / 16000.0:F1}s audio): {timer.Elapsed.TotalSeconds:F2}s");
     Console.WriteLine(text);
     if (!text.Contains("country", StringComparison.OrdinalIgnoreCase)) throw new Exception("Expected JFK sample transcription");
+    var sequential = new PreviewPhrases();
+    var sequentialAudio = new List<float>();
+    var recognized = new List<string>();
+    for (var phrase = 0; phrase < 2; phrase++)
+    {
+        sequentialAudio.AddRange(samples);
+        sequential.Observe(sequentialAudio.Count, samples.Length, true);
+        sequentialAudio.AddRange(new float[8000]);
+        sequential.Observe(sequentialAudio.Count, 8000, false);
+        recognized.Add(await engine.TranscribeAsync(sequential.Snapshot(sequentialAudio)));
+        if (!recognized[^1].Contains("country", StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Real phrase lost speech");
+        if (sequential.Complete(recognized[^1]) != string.Join(" ", recognized))
+            throw new Exception("Real phrase continuity failed");
+    }
+    Console.WriteLine("PASS: successive real-model phrases remain in sequence without replaying audio.");
     if (await engine.TranscribeAsync(new float[16000]) != "") throw new Exception("Silence produced text");
     Console.WriteLine("PASS: model load, speech transcription, silence rejection.");
 }

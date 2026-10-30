@@ -24,6 +24,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     private readonly CancellationTokenSource _shutdown = new();
     private Task _work = Task.CompletedTask;
     private LiveTranscriptionPreview? _preview;
+    private PreviewPhrases _previewPhrases = new();
     public Action<string>? OnPreview { get; set; }
 
     public string Label => "Local Whisper (English, offline)";
@@ -60,6 +61,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             _samples.Clear();
             _captureError = null;
             _tooLong = false;
+            _previewPhrases = new PreviewPhrases();
         }
         _stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _firstAudio = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -86,7 +88,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             await _firstAudio.Task.WaitAsync(TimeSpan.FromSeconds(5), _shutdown.Token);
             Log.Write($"Microphone ready: {timer.Elapsed.TotalMilliseconds:F0} ms");
             if (OnPreview is { } publish)
-                _preview = new LiveTranscriptionPreview(PreviewSamples, TranscribeAsync, publish,
+                _preview = new LiveTranscriptionPreview(PreviewSamples, TranscribePreviewAsync, publish,
                     e => Log.Write($"Live preview: {e.Message}"));
         }
         catch
@@ -107,11 +109,15 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     {
         lock (_gate)
         {
-            // Bounded cost even in long hands-free sessions; the final decode uses all audio.
-            if (_samples.Count < SampleRate) return [];
-            var count = Math.Min(_samples.Count, SampleRate * 8);
-            return _samples.GetRange(_samples.Count - count, count).ToArray();
+            return _previewPhrases.Snapshot(_samples);
         }
+    }
+
+    private async Task<string> TranscribePreviewAsync(float[] samples, CancellationToken token)
+    {
+        var text = await TranscribeAsync(samples, token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        lock (_gate) return _previewPhrases.Complete(text);
     }
 
     private async Task StopPreviewAsync()
@@ -136,7 +142,9 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             }
         }
         if (e.BytesRecorded > 0) _firstAudio?.TrySetResult();
-        OnSound?.Invoke(e.BytesRecorded > 0 && Math.Sqrt(energy / (e.BytesRecorded / 2)) > 0.005);
+        var speaking = e.BytesRecorded > 0 && Math.Sqrt(energy / (e.BytesRecorded / 2)) > 0.005;
+        lock (_gate) _previewPhrases.Observe(_samples.Count, e.BytesRecorded / 2, speaking);
+        OnSound?.Invoke(speaking);
     }
 
     private void CaptureStopped(object? sender, StoppedEventArgs e)
