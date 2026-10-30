@@ -141,7 +141,9 @@ the initialized WASAPI stream stopped between dictations for faster starts. It d
 idle. The rising cue waits for the first captured audio buffer. Changing the default microphone
 requires initializing the new device on the next recording.
 
-While dictating in the GGML edition, the floating overlay shows a provisional live transcript.
+While dictating in the GGML edition, the floating overlay shows a provisional live transcript
+on a single horizontal line. Text scrolls left as new words arrive, keeping the latest words
+in view without growing taller or wrapping. Scrolling animation ticks every 16 ms.
 It re-decodes the latest eight seconds of audio, waiting 250 ms between completed attempts; actual
 updates also depend on CPU inference time. Earlier words can change, and long recordings show only
 the recent text. The preview never types into the active app. Releasing Right Alt (or stopping
