@@ -3,6 +3,35 @@ using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
 var music = new FakeState("music", 0.8f);
+// Simulate a slow Windows device enumeration: it must not delay the recording cue.
+using (var entered = new ManualResetEventSlim())
+using (var release = new ManualResetEventSlim())
+{
+    var slowMusic = new FakeState("slow-device", 0.8f);
+    var worker = new BackgroundAudioDucker(new AudioDucker(() =>
+    {
+        entered.Set();
+        if (!release.Wait(TimeSpan.FromSeconds(5))) throw new Exception("Worker test timed out");
+        return [new FakeSession(slowMusic)];
+    }, 42, Console.WriteLine));
+    var readyCue = new FakeSounds();
+    using (var feedback = new RecordingFeedback(worker, readyCue))
+    {
+        try
+        {
+            feedback.Begin();
+            if (!entered.Wait(TimeSpan.FromSeconds(2))) throw new Exception("Worker did not start");
+            feedback.Started();
+            if (readyCue.Starts != 1) throw new Exception("Slow ducking blocked readiness");
+            for (var i = 0; i < 100; i++) worker.Refresh();
+            feedback.CaptureEnded();
+        }
+        finally { release.Set(); }
+    }
+    Equal(slowMusic.Volume, 0.8f);
+    if (slowMusic.Handles != 0) throw new Exception("Worker failed to release sessions");
+}
+Console.WriteLine("PASS: slow playback enumeration does not block cues; queued stop/exit restores volume.");
 var own = new FakeState("murmur", 1f, 42);
 var muted = new FakeState("muted", 0f);
 var states = new List<FakeState> { music, own, muted };

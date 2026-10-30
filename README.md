@@ -134,7 +134,12 @@ During microphone capture, other active playback sessions are reduced to 10% of 
 volume. A short rising cue confirms recording started; a falling cue marks the stop request. Playback
 is restored when capture ends (after the existing half-second trailing capture), before transcription
 finishes. Hands-free mode stays ducked until stopped. Manual session-volume changes are preserved;
-Murmur itself is excluded so its cues remain audible. New sessions are picked up within 250 ms.
+Murmur itself is excluded so its cues remain audible. Playback volume work runs on a separate worker
+so slow device enumeration cannot delay recording or hotkeys; new sessions are checked every 250 ms.
+The GGML edition initializes the microphone once at launch and discards that setup audio, then keeps
+the initialized WASAPI stream stopped between dictations for faster starts. It does not record while
+idle. The rising cue waits for the first captured audio buffer. Changing the default microphone
+requires initializing the new device on the next recording.
 Audio remains in memory; the model remains loaded between recordings. Sessions are limited to five
 minutes. Very short or silent captures are discarded; background noise may still cause incorrect text.
 Microphone permission is required. Transcripts are logged only if debug logging is explicitly enabled.

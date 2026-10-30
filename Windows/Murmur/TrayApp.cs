@@ -11,7 +11,8 @@ sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan TrailingAudio = TimeSpan.FromMilliseconds(500);
 
     private readonly SynchronizationContext _ui;
-    private readonly AudioDucker _ducker = new(WindowsPlaybackSessions.Enumerate, Environment.ProcessId, Log.Write);
+    private readonly BackgroundAudioDucker _ducker = new(
+        new AudioDucker(WindowsPlaybackSessions.Enumerate, Environment.ProcessId, Log.Write));
     private readonly RecordingFeedback _feedback;
     private readonly System.Windows.Forms.Timer _audioRefresh = new() { Interval = 250 };
     private bool _exiting;
@@ -120,12 +121,14 @@ sealed class TrayApp : ApplicationContext
 #else
             await PrepareEngineAsync();
 #endif
+            if (_exiting) return;
             _engineLine.Text = $"Engine: {_engine.Label}";
             SetStatus("Hold Right Alt to dictate · tap to toggle");
             CurrentState = State.Idle;
         }
         catch (Exception e)
         {
+            if (_exiting) return;
             Log.Write($"prepare error: {e}");
             _engineLine.Text = "Engine: unavailable";
             SetStatus($"Error: {e.Message}");
@@ -133,10 +136,15 @@ sealed class TrayApp : ApplicationContext
         }
     }
 
-    private Task PrepareEngineAsync()
+    private async Task PrepareEngineAsync()
     {
         _engine.OnSound = speaking => _ui.Post(_ => { if (!_exiting) _overlay.SetSpeaking(speaking); }, null);
-        return _engine.PrepareAsync(AskUserAsync, SetStatus);
+        await _engine.PrepareAsync(AskUserAsync, SetStatus);
+        if (_exiting) return;
+#if !MICROSOFT_SPEECH
+        SetStatus("Preparing microphone…");
+        await ((LocalSpeechEngine)_engine).WarmCaptureAsync();
+#endif
     }
 
     /// <summary>Yes/no question on the UI thread, used for the model-download consent.</summary>

@@ -1,7 +1,7 @@
 using Murmur;
 using Whisper.net;
 
-// Does not record audio or download a model. Tests native CPU runtime loading and setup failures.
+// Does not download models. Only --capture briefly opens the microphone, discarding captured audio.
 Console.WriteLine("Native runtime: " + WhisperFactory.GetRuntimeInfo());
 using (var missing = new LocalSpeechEngine(""))
 {
@@ -20,12 +20,30 @@ try
 finally { File.Delete(invalidFile); }
 Console.WriteLine("PASS: native runtime load, missing model, invalid model, unprepared capture, idle cancellation.");
 
-if (args.Length == 2)
+if (args.Length >= 2)
 {
     using var engine = new LocalSpeechEngine(args[0]);
     var timer = System.Diagnostics.Stopwatch.StartNew();
     await engine.PrepareAsync(_ => throw new Exception("Unexpected download"), Console.WriteLine);
     Console.WriteLine($"Model load: {timer.Elapsed.TotalSeconds:F2}s");
+    if (args.Contains("--capture"))
+    {
+        var audioCallbacks = 0;
+        engine.OnSound = _ => Interlocked.Increment(ref audioCallbacks);
+        await engine.WarmCaptureAsync();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var stoppedCallbacks = Volatile.Read(ref audioCallbacks);
+            await Task.Delay(1000); // prove readiness survives an idle, stopped stream
+            if (Volatile.Read(ref audioCallbacks) != stoppedCallbacks)
+                throw new Exception("Microphone kept delivering audio while idle");
+            timer.Restart();
+            await engine.StartAsync();
+            Console.WriteLine($"Mic start to first captured buffer ({attempt + 1}): {timer.Elapsed.TotalMilliseconds:F0} ms");
+            await engine.CancelAsync();
+        }
+        Console.WriteLine("PASS: repeated real microphone readiness, cancellation and no idle capture; audio discarded.");
+    }
     using var reader = new NAudio.Wave.WaveFileReader(args[1]);
     if (reader.WaveFormat.SampleRate != 16000 || reader.WaveFormat.Channels != 1 || reader.WaveFormat.BitsPerSample != 16)
         throw new Exception("Test requires 16 kHz mono PCM16 audio");

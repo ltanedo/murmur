@@ -7,7 +7,7 @@ interface IRecordingSounds : IDisposable
 }
 
 /// <summary>Exactly one cue per transition, with volume restoration independent of transcription.</summary>
-sealed class RecordingFeedback(AudioDucker ducker, IRecordingSounds sounds) : IDisposable
+sealed class RecordingFeedback(IAudioDucker ducker, IRecordingSounds sounds) : IDisposable
 {
     private bool _active;
     private bool _started;

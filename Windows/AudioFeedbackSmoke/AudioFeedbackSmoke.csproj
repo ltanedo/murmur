@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Murmur/AudioDucker.cs" Link="AudioDucker.cs" />
+    <Compile Include="../Murmur/BackgroundAudioDucker.cs" Link="BackgroundAudioDucker.cs" />
     <Compile Include="../Murmur/WindowsPlaybackSessions.cs" Link="WindowsPlaybackSessions.cs" />
     <Compile Include="../Murmur/RecordingFeedback.cs" Link="RecordingFeedback.cs" />
     <Compile Include="../Murmur/RecordingSounds.cs" Link="RecordingSounds.cs" />

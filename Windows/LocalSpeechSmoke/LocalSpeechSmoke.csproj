@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="../Murmur/ISpeechEngine.cs" Link="ISpeechEngine.cs" />
     <Compile Include="../Murmur/LocalSpeechEngine.cs" Link="LocalSpeechEngine.cs" />
+    <Compile Include="../Murmur/Log.cs" Link="Log.cs" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <PackageReference Include="NAudio" Version="2.2.1" />

@@ -7,8 +7,15 @@ interface IPlaybackSession : IDisposable
     float Volume { get; set; }
 }
 
-/// <summary>Owns session handles until restoration. Called only on the UI thread.</summary>
-sealed class AudioDucker(Func<IEnumerable<IPlaybackSession>> enumerate, int ownProcessId, Action<string> log) : IDisposable
+interface IAudioDucker : IDisposable
+{
+    void Begin();
+    void Refresh();
+    void End();
+}
+
+/// <summary>Owns session handles until restoration. Called on one owning thread.</summary>
+sealed class AudioDucker(Func<IEnumerable<IPlaybackSession>> enumerate, int ownProcessId, Action<string> log) : IAudioDucker
 {
     private sealed record Saved(IPlaybackSession Session, float Original, float Lowered);
     private readonly Dictionary<string, Saved> _saved = [];
