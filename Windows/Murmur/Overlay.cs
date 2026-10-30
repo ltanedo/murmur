@@ -15,7 +15,12 @@ sealed class Overlay : Form
     private Mode _mode = Mode.Hidden;
     private bool _speaking;
     private int _tick;
+    private string _transcript = "";
+    private readonly StreamingTranscript _streamingText = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 80 };
+    private readonly System.Windows.Forms.Timer _scrollTimer = new() { Interval = 16 };
+    private float _scrollOffset;
+    private float _scrollTarget;
 
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -33,7 +38,19 @@ sealed class Overlay : Form
         TransparencyKey = Color.Magenta;
         DoubleBuffered = true;
         Size = new Size(160, 40);
-        _timer.Tick += (_, _) => { _tick++; Invalidate(); };
+        _timer.Tick += (_, _) =>
+        {
+            _tick++;
+            if (_mode == Mode.Listening && _streamingText.Advance()) UpdateTranscript();
+            Invalidate();
+        };
+        _scrollTimer.Tick += (_, _) =>
+        {
+            var distance = _scrollTarget - _scrollOffset;
+            if (Math.Abs(distance) < 0.5f) return;
+            _scrollOffset += distance * 0.3f;
+            Invalidate();
+        };
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -54,14 +71,25 @@ sealed class Overlay : Form
         if (mode == Mode.Hidden)
         {
             _timer.Stop();
+            _scrollTimer.Stop();
+            _scrollOffset = _scrollTarget = 0;
             _speaking = false;
+            _transcript = "";
+            _streamingText.Clear();
+            Size = new Size(160, 40);
             Hide();
             return;
+        }
+        if (mode == Mode.Processing)
+        {
+            _streamingText.Finish();
+            UpdateTranscript();
         }
         var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
         Location = new Point(screen.Left + (screen.Width - Width) / 2, screen.Bottom - Height - 24);
         if (!Visible) ShowWindow(Handle, SW_SHOWNOACTIVATE);
         _timer.Start();
+        _scrollTimer.Start();
         Invalidate();
     }
 
@@ -71,21 +99,40 @@ sealed class Overlay : Form
         Invalidate();
     }
 
+    public void SetTranscript(string text)
+    {
+        if (_mode != Mode.Listening) return;
+        _streamingText.Update(text);
+        UpdateTranscript();
+        Show(_mode);
+    }
+
+    private void UpdateTranscript()
+    {
+        var text = _streamingText.Text;
+        // The recognizer bounds the rolling window; clip horizontally instead of wrapping.
+        _transcript = text;
+        var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Size = _transcript.Length == 0 ? new Size(160, 40)
+            : new Size(Math.Min(560, screen.Width - 32), 40);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        using var path = RoundedRect(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2);
+        using var path = RoundedRect(new Rectangle(0, 0, Width - 1, Height - 1), 20);
         using var fill = new SolidBrush(Color.FromArgb(235, 30, 30, 34));
         g.FillPath(fill, path);
 
-        var text = _mode == Mode.Listening ? "Listening" : "Transcribing";
+        var text = _mode == Mode.Listening
+            ? (_transcript.Length > 0 ? "Listening · live preview" : "Listening") : "Transcribing";
         using var font = new Font("Segoe UI", 10f, FontStyle.Regular);
         var textSize = g.MeasureString(text, font);
         var contentWidth = 22 + textSize.Width;
-        var x = (Width - contentWidth) / 2;
-        var cy = Height / 2f;
+        var x = _transcript.Length > 0 ? 12 : (Width - contentWidth) / 2;
+        var cy = 20f;
 
         if (_mode == Mode.Listening)
         {
@@ -107,7 +154,32 @@ sealed class Overlay : Form
         }
 
         using var textBrush = new SolidBrush(Color.White);
-        g.DrawString(text, font, textBrush, x + 22, cy - textSize.Height / 2);
+        if (_transcript.Length == 0)
+            g.DrawString(text, font, textBrush, x + 22, cy - textSize.Height / 2);
+        else
+        {
+            using var format = new StringFormat(StringFormat.GenericTypographic)
+            {
+                FormatFlags = StringFormatFlags.NoWrap,
+                Trimming = StringTrimming.None
+            };
+            var viewport = new RectangleF(38, 0, Width - 54, Height);
+            var measured = g.MeasureString(_transcript, font, int.MaxValue, format);
+            _scrollTarget = Math.Max(0, measured.Width - viewport.Width + 4);
+            // Rolling-window revisions may shorten text: immediately keep the new tail in view.
+            if (_scrollOffset > _scrollTarget) _scrollOffset = _scrollTarget;
+            var state = g.Save();
+            g.SetClip(viewport);
+            g.DrawString(_transcript, font, textBrush,
+                new PointF(viewport.Left - _scrollOffset, cy - measured.Height / 2), format);
+            g.Restore(state);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { _timer.Dispose(); _scrollTimer.Dispose(); }
+        base.Dispose(disposing);
     }
 
     private static GraphicsPath RoundedRect(Rectangle bounds, int radius)

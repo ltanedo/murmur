@@ -140,6 +140,22 @@ The GGML edition initializes the microphone once at launch and discards that set
 the initialized WASAPI stream stopped between dictations for faster starts. It does not record while
 idle. The rising cue waits for the first captured audio buffer. Changing the default microphone
 requires initializing the new device on the next recording.
+
+While dictating in the GGML edition, the floating overlay shows a provisional live transcript
+on a single horizontal line. Text scrolls left as new words arrive, keeping the latest words
+in view without growing taller or wrapping. Scrolling animation ticks every 16 ms.
+It re-decodes the current phrase, waiting 250 ms between completed attempts; actual
+updates also depend on CPU inference time. A half-second quiet pause closes a phrase, preserving
+its text while the next phrase updates. Uninterrupted phrases are split at 30 seconds to bound work.
+Words in the current phrase can change; completed phrases remain in order. The preview never types
+into the active app. Releasing Right Alt (or stopping
+hands-free mode) cancels preview work and transcribes the full recording before inserting text.
+Cancelling dictation clears the preview and inserts nothing. This uses the same local model, with
+one decode at a time and no idle recording, but uses more CPU while listening. Microsoft and Mac
+editions do not gain a live preview from this change. Recognized words appear progressively on
+80 ms animation ticks, with larger batches catching up within six ticks. Shared words are retained
+when the preview changes, rather than replaying the sentence. This smooths presentation; it does
+not remove the model's recognition delay or generate words before they are recognized.
 Audio remains in memory; the model remains loaded between recordings. Sessions are limited to five
 minutes. Very short or silent captures are discarded; background noise may still cause incorrect text.
 Microphone permission is required. Transcripts are logged only if debug logging is explicitly enabled.

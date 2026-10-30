@@ -23,6 +23,9 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     private bool _tooLong;
     private readonly CancellationTokenSource _shutdown = new();
     private Task _work = Task.CompletedTask;
+    private LiveTranscriptionPreview? _preview;
+    private PreviewPhrases _previewPhrases = new();
+    public Action<string>? OnPreview { get; set; }
 
     public string Label => "Local Whisper (English, offline)";
     public bool IsOnDevice => true;
@@ -58,6 +61,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             _samples.Clear();
             _captureError = null;
             _tooLong = false;
+            _previewPhrases = new PreviewPhrases();
         }
         _stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _firstAudio = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,6 +87,9 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             // Capture starts on a worker. Do not announce readiness before it delivers audio.
             await _firstAudio.Task.WaitAsync(TimeSpan.FromSeconds(5), _shutdown.Token);
             Log.Write($"Microphone ready: {timer.Elapsed.TotalMilliseconds:F0} ms");
+            if (OnPreview is { } publish)
+                _preview = new LiveTranscriptionPreview(PreviewSamples, TranscribePreviewAsync, publish,
+                    e => Log.Write($"Live preview: {e.Message}"));
         }
         catch
         {
@@ -96,6 +103,28 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     {
         try { await StartAsync(); }
         finally { await CancelAsync(); }
+    }
+
+    private float[] PreviewSamples()
+    {
+        lock (_gate)
+        {
+            return _previewPhrases.Snapshot(_samples);
+        }
+    }
+
+    private async Task<string> TranscribePreviewAsync(float[] samples, CancellationToken token)
+    {
+        var text = await TranscribeAsync(samples, token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        lock (_gate) return _previewPhrases.Complete(text);
+    }
+
+    private async Task StopPreviewAsync()
+    {
+        var preview = _preview;
+        _preview = null;
+        if (preview is not null) await preview.StopAsync().ConfigureAwait(false);
     }
 
     private void CaptureData(object? sender, WaveInEventArgs e)
@@ -113,7 +142,9 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             }
         }
         if (e.BytesRecorded > 0) _firstAudio?.TrySetResult();
-        OnSound?.Invoke(e.BytesRecorded > 0 && Math.Sqrt(energy / (e.BytesRecorded / 2)) > 0.005);
+        var speaking = e.BytesRecorded > 0 && Math.Sqrt(energy / (e.BytesRecorded / 2)) > 0.005;
+        lock (_gate) _previewPhrases.Observe(_samples.Count, e.BytesRecorded / 2, speaking);
+        OnSound?.Invoke(speaking);
     }
 
     private void CaptureStopped(object? sender, StoppedEventArgs e)
@@ -141,7 +172,8 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
 
     public async Task<string> StopAsync()
     {
-        await EndCaptureAsync();
+        try { await EndCaptureAsync(); }
+        finally { await StopPreviewAsync(); }
         float[] samples;
         lock (_gate)
         {
@@ -153,7 +185,9 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
         return await TranscribeAsync(samples);
     }
 
-    internal async Task<string> TranscribeAsync(float[] samples)
+    internal Task<string> TranscribeAsync(float[] samples) => TranscribeAsync(samples, _shutdown.Token);
+
+    internal async Task<string> TranscribeAsync(float[] samples, CancellationToken cancellationToken)
     {
         var processor = _processor ?? throw new TranscriberException("The local model is not loaded.");
         // Ignore very short or silent captures; Whisper can invent text from silence.
@@ -161,7 +195,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
         var work = Task.Run(async () =>
         {
             var segments = new List<string>();
-            await foreach (var segment in processor.ProcessAsync(samples, _shutdown.Token))
+            await foreach (var segment in processor.ProcessAsync(samples, cancellationToken))
                 if (!string.IsNullOrWhiteSpace(segment.Text)) segments.Add(segment.Text.Trim());
             return RemoveBlankAudioMarkers(string.Join(" ", segments));
         });
@@ -183,7 +217,11 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     public async Task CancelAsync()
     {
         try { await EndCaptureAsync(); }
-        finally { lock (_gate) _samples.Clear(); }
+        finally
+        {
+            await StopPreviewAsync();
+            lock (_gate) _samples.Clear();
+        }
     }
 
     private void ReleaseCapture()
@@ -202,6 +240,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     {
         ReleaseCapture();
         _shutdown.Cancel();
+        StopPreviewAsync().GetAwaiter().GetResult();
         // Do not free native model memory while a load or transcription is using it.
         try { _work.GetAwaiter().GetResult(); } catch { /* Reported by the caller. */ }
         _processor?.Dispose();

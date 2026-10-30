@@ -18,6 +18,71 @@ foreach (var (input, expected) in new[]
     if (LocalSpeechEngine.RemoveBlankAudioMarkers(input) != expected)
         throw new Exception($"Blank-audio filter failed for: {input}");
 Console.WriteLine("PASS: blank-audio annotations removed; genuine text preserved.");
+var streamed = new StreamingTranscript();
+streamed.Update("one two three");
+if (streamed.Text != "one") throw new Exception("Expected first word immediately");
+streamed.Advance();
+if (streamed.Text != "one two") throw new Exception("Expected word-by-word reveal");
+streamed.Update("one two four five");
+if (streamed.Text != "one two") throw new Exception("Stable prefix was replayed");
+streamed.Finish();
+if (streamed.Text != "one two four five") throw new Exception("Correction failed");
+streamed.Update("four five six");
+if (streamed.Text != "four five") throw new Exception("Rolling-window overlap was replayed");
+streamed.Advance();
+streamed.Update("four five six");
+if (streamed.Advance()) throw new Exception("Identical hypothesis replayed");
+streamed.Update(string.Join(" ", Enumerable.Range(0, 100)));
+for (var tick = 0; tick < 6; tick++) streamed.Advance();
+if (streamed.Advance()) throw new Exception("Burst reveal exceeded six animation ticks");
+streamed.Update("");
+if (streamed.Text != "" || streamed.Advance()) throw new Exception("Blank hypothesis left stale words");
+streamed.Update("cancel this"); streamed.Clear();
+if (streamed.Text != "" || streamed.Advance()) throw new Exception("Clear left pending words");
+Console.WriteLine("PASS: word reveal, revisions, rolling overlap, burst catch-up and clearing.");
+var phrases = new PreviewPhrases();
+var phraseAudio = new List<float>();
+var expectedPhrases = new List<string>();
+for (var sentence = 1; sentence <= 6; sentence++)
+{
+    phraseAudio.AddRange(new float[16000]);
+    phrases.Observe(phraseAudio.Count, 16000, true);
+    if (phrases.Snapshot(phraseAudio).Length != 16000) throw new Exception("Phrase start was lost");
+    phrases.Complete("provisional words");
+    phraseAudio.AddRange(new float[8000]);
+    phrases.Observe(phraseAudio.Count, 8000, false);
+    if (phrases.Snapshot(phraseAudio).Length != 24000) throw new Exception("Pause boundary lost audio");
+    expectedPhrases.Add($"Sentence {sentence}.");
+    if (phrases.Complete(expectedPhrases[^1]) != string.Join(" ", expectedPhrases))
+        throw new Exception("Completed sentences were lost, repeated or reordered");
+}
+var longPhrase = new PreviewPhrases();
+if (longPhrase.Snapshot(new List<float>(new float[16000 * 35])).Length != 16000 * 30)
+    throw new Exception("Uninterrupted preview exceeded audio bound");
+Console.WriteLine("PASS: six successive phrases retain order; provisional corrections and bounded audio.");
+var decodeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var decodeCancelled = false;
+var published = 0;
+var decodeCalls = 0;
+var previewErrors = new List<Exception>();
+var blockedPreview = new LiveTranscriptionPreview(() => [0.1f], async (_, token) =>
+{
+    Interlocked.Increment(ref decodeCalls);
+    decodeEntered.TrySetResult();
+    try { await Task.Delay(Timeout.Infinite, token); }
+    catch (OperationCanceledException) { decodeCancelled = true; }
+    return "stale text"; // Even a decoder returning on cancellation must not publish.
+}, _ => Interlocked.Increment(ref published), previewErrors.Add, TimeSpan.FromMilliseconds(10));
+await decodeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+await blockedPreview.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
+if (!decodeCancelled || published != 0 || decodeCalls != 1 || previewErrors.Count != 0)
+    throw new Exception("Preview cancellation leaked stale text or overlapping work");
+var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var failedPreview = new LiveTranscriptionPreview(() => [0.1f], (_, _) => throw new IOException("test failure"),
+    _ => throw new Exception("Unexpected publication"), _ => failed.TrySetResult(), TimeSpan.FromMilliseconds(10));
+await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+await failedPreview.StopAsync();
+Console.WriteLine("PASS: preview cancellation suppresses stale output, drains work, and isolates errors.");
 using (var missing = new LocalSpeechEngine(""))
 {
     await ExpectFailure(() => missing.PrepareAsync(_ => throw new Exception("Unexpected download prompt"), _ => { }),
@@ -66,11 +131,57 @@ if (args.Length >= 2)
     reader.ReadExactly(pcm);
     var samples = new float[pcm.Length / 2];
     for (var i = 0; i < samples.Length; i++) samples[i] = BitConverter.ToInt16(pcm, i * 2) / 32768f;
+    var previewsReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var previews = new List<string>();
+    var snapshotNumber = 0;
+    var previewTimer = System.Diagnostics.Stopwatch.StartNew();
+    var realPreview = new LiveTranscriptionPreview(() =>
+    {
+        var length = Math.Min(samples.Length, Interlocked.Increment(ref snapshotNumber) * 32000);
+        return samples[Math.Max(0, length - 128000)..length];
+    }, engine.TranscribeAsync, text =>
+    {
+        previews.Add(text);
+        Console.WriteLine($"Live preview at {previewTimer.Elapsed.TotalSeconds:F2}s: {text}");
+        if (previews.Count >= 2) previewsReady.TrySetResult();
+    }, e => previewsReady.TrySetException(e), TimeSpan.FromMilliseconds(750));
+    try { await previewsReady.Task.WaitAsync(TimeSpan.FromSeconds(30)); }
+    finally { await realPreview.StopAsync(); }
+    if (previews.All(string.IsNullOrWhiteSpace)) throw new Exception("No real-model live text");
+    Console.WriteLine("PASS: rolling real-model previews; final decode follows on the same processor.");
+    var nativeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var nativePublished = false;
+    var cancellingPreview = new LiveTranscriptionPreview(() => samples, (audio, token) =>
+    {
+        var task = engine.TranscribeAsync(audio, token);
+        nativeStarted.TrySetResult();
+        return task;
+    }, _ => nativePublished = true, e => nativeStarted.TrySetException(e), TimeSpan.FromMilliseconds(10));
+    await nativeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await cancellingPreview.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+    if (nativePublished) throw new Exception("Cancelled native preview published text");
+    Console.WriteLine("PASS: native preview cancellation drains before final processor reuse.");
     timer.Restart();
     var text = await engine.TranscribeAsync(samples);
     Console.WriteLine($"Transcription ({samples.Length / 16000.0:F1}s audio): {timer.Elapsed.TotalSeconds:F2}s");
     Console.WriteLine(text);
     if (!text.Contains("country", StringComparison.OrdinalIgnoreCase)) throw new Exception("Expected JFK sample transcription");
+    var sequential = new PreviewPhrases();
+    var sequentialAudio = new List<float>();
+    var recognized = new List<string>();
+    for (var phrase = 0; phrase < 2; phrase++)
+    {
+        sequentialAudio.AddRange(samples);
+        sequential.Observe(sequentialAudio.Count, samples.Length, true);
+        sequentialAudio.AddRange(new float[8000]);
+        sequential.Observe(sequentialAudio.Count, 8000, false);
+        recognized.Add(await engine.TranscribeAsync(sequential.Snapshot(sequentialAudio)));
+        if (!recognized[^1].Contains("country", StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Real phrase lost speech");
+        if (sequential.Complete(recognized[^1]) != string.Join(" ", recognized))
+            throw new Exception("Real phrase continuity failed");
+    }
+    Console.WriteLine("PASS: successive real-model phrases remain in sequence without replaying audio.");
     if (await engine.TranscribeAsync(new float[16000]) != "") throw new Exception("Silence produced text");
     Console.WriteLine("PASS: model load, speech transcription, silence rejection.");
 }

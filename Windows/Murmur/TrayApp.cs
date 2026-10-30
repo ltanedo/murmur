@@ -211,6 +211,13 @@ sealed class TrayApp : ApplicationContext
         _stopRequested = false;
         _cancelRequested = false;
         var generation = ++_recordingGeneration;
+#if !MICROSOFT_SPEECH
+        ((LocalSpeechEngine)_engine).OnPreview = text => _ui.Post(_ =>
+        {
+            if (!_exiting && generation == _recordingGeneration && CurrentState == State.Recording)
+                _overlay.SetTranscript(text);
+        }, null);
+#endif
         _engine.OnCaptureStopped = () => _ui.Post(_ =>
         {
             if (!_exiting && generation == _recordingGeneration) _feedback.CaptureEnded();
