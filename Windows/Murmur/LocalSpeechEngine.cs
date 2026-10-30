@@ -1,5 +1,7 @@
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 using Whisper.net;
+using System.Text.RegularExpressions;
 
 namespace Murmur;
 
@@ -12,8 +14,11 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     private readonly List<float> _samples = [];
     private WhisperFactory? _factory;
     private WhisperProcessor? _processor;
-    private WaveInEvent? _capture;
+    private WasapiCapture? _capture;
+    private bool _capturing;
+    private string? _microphoneId;
     private TaskCompletionSource? _stopped;
+    private TaskCompletionSource? _firstAudio;
     private Exception? _captureError;
     private bool _tooLong;
     private readonly CancellationTokenSource _shutdown = new();
@@ -22,6 +27,7 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     public string Label => "Local Whisper (English, offline)";
     public bool IsOnDevice => true;
     public Action<bool>? OnSound { get; set; }
+    public Action? OnCaptureStopped { get; set; }
 
     public async Task PrepareAsync(Func<string, Task<bool>> askUser, Action<string> status)
     {
@@ -43,10 +49,10 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
         await _work;
     }
 
-    public Task StartAsync()
+    public async Task StartAsync()
     {
         if (_processor is null) throw new TranscriberException("The local model is not loaded.");
-        if (_capture is not null) throw new TranscriberException("Microphone capture is already running.");
+        if (_capturing) throw new TranscriberException("Microphone capture is already running.");
         lock (_gate)
         {
             _samples.Clear();
@@ -54,21 +60,47 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             _tooLong = false;
         }
         _stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var capture = new WaveInEvent { WaveFormat = new WaveFormat(SampleRate, 16, 1), BufferMilliseconds = 50 };
-        _capture = capture;
-        capture.DataAvailable += CaptureData;
-        capture.RecordingStopped += CaptureStopped;
-        try { capture.StartRecording(); }
+        _firstAudio = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var devices = new MMDeviceEnumerator();
+        using var microphone = devices.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console);
+        if (_microphoneId != microphone.ID) ReleaseCapture();
+        if (_capture is null)
+        {
+            _capture = new WasapiCapture(microphone, false, 20)
+            {
+                WaveFormat = new WaveFormat(SampleRate, 16, 1)
+            };
+            _microphoneId = microphone.ID;
+            _capture.DataAvailable += CaptureData;
+            _capture.RecordingStopped += CaptureStopped;
+        }
+        var capture = _capture;
+        _capturing = true;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            capture.StartRecording();
+            // Capture starts on a worker. Do not announce readiness before it delivers audio.
+            await _firstAudio.Task.WaitAsync(TimeSpan.FromSeconds(5), _shutdown.Token);
+            Log.Write($"Microphone ready: {timer.Elapsed.TotalMilliseconds:F0} ms");
+        }
         catch
         {
             ReleaseCapture();
             throw;
         }
-        return Task.CompletedTask;
+    }
+
+    // Pay driver initialization at app launch, then stop. No idle recording or pre-roll.
+    internal async Task WarmCaptureAsync()
+    {
+        try { await StartAsync(); }
+        finally { await CancelAsync(); }
     }
 
     private void CaptureData(object? sender, WaveInEventArgs e)
     {
+        if (!ReferenceEquals(sender, _capture)) return;
         double energy = 0;
         lock (_gate)
         {
@@ -80,24 +112,30 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
                 energy += sample * sample;
             }
         }
+        if (e.BytesRecorded > 0) _firstAudio?.TrySetResult();
         OnSound?.Invoke(e.BytesRecorded > 0 && Math.Sqrt(energy / (e.BytesRecorded / 2)) > 0.005);
     }
 
     private void CaptureStopped(object? sender, StoppedEventArgs e)
     {
+        if (!ReferenceEquals(sender, _capture)) return;
         lock (_gate) _captureError = e.Exception;
+        _firstAudio?.TrySetException(e.Exception ?? new IOException("Microphone stopped before audio arrived."));
         _stopped?.TrySetResult();
+        OnCaptureStopped?.Invoke();
     }
 
     private async Task EndCaptureAsync()
     {
-        if (_capture is null) return;
+        if (_capture is null || !_capturing) return;
         try
         {
             _capture.StopRecording();
             if (_stopped is not null) await _stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
-        finally { ReleaseCapture(); }
+        catch { ReleaseCapture(); throw; }
+        finally { _capturing = false; }
+        if (_captureError is not null) ReleaseCapture();
         OnSound?.Invoke(false);
     }
 
@@ -125,10 +163,21 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             var segments = new List<string>();
             await foreach (var segment in processor.ProcessAsync(samples, _shutdown.Token))
                 if (!string.IsNullOrWhiteSpace(segment.Text)) segments.Add(segment.Text.Trim());
-            return string.Join(" ", segments);
+            return RemoveBlankAudioMarkers(string.Join(" ", segments));
         });
         _work = work;
         return await work;
+    }
+
+    // Whisper can emit this annotation for room noise even when the amplitude gate passes.
+    // Filter model output independently of the optional filler-word cleanup setting.
+    internal static string RemoveBlankAudioMarkers(string text)
+    {
+        var cleaned = Regex.Replace(text, @"\[\s*BLANK[\s_]+AUDIO\s*\]", " ",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (cleaned == text) return text;
+        if (cleaned.All(c => char.IsWhiteSpace(c) || char.IsPunctuation(c))) return "";
+        return Regex.Replace(cleaned, @"\s+", " ").Trim();
     }
 
     public async Task CancelAsync()
@@ -141,6 +190,8 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
     {
         var capture = _capture;
         _capture = null;
+        _capturing = false;
+        _microphoneId = null;
         if (capture is null) return;
         capture.DataAvailable -= CaptureData;
         capture.RecordingStopped -= CaptureStopped;
