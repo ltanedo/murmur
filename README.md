@@ -140,6 +140,15 @@ The GGML edition initializes the microphone once at launch and discards that set
 the initialized WASAPI stream stopped between dictations for faster starts. It does not record while
 idle. The rising cue waits for the first captured audio buffer. Changing the default microphone
 requires initializing the new device on the next recording.
+
+While dictating in the GGML edition, the floating overlay shows a provisional live transcript.
+It re-decodes the latest eight seconds of audio, waiting 750 ms between completed attempts; actual
+updates also depend on CPU inference time. Earlier words can change, and long recordings show only
+the recent text. The preview never types into the active app. Releasing Right Alt (or stopping
+hands-free mode) cancels preview work and transcribes the full recording before inserting text.
+Cancelling dictation clears the preview and inserts nothing. This uses the same local model, with
+one decode at a time and no idle recording, but uses more CPU while listening. Microsoft and Mac
+editions do not gain a live preview from this change.
 Audio remains in memory; the model remains loaded between recordings. Sessions are limited to five
 minutes. Very short or silent captures are discarded; background noise may still cause incorrect text.
 Microphone permission is required. Transcripts are logged only if debug logging is explicitly enabled.

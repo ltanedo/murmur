@@ -15,6 +15,7 @@ sealed class Overlay : Form
     private Mode _mode = Mode.Hidden;
     private bool _speaking;
     private int _tick;
+    private string _transcript = "";
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 80 };
 
     private const int WS_EX_NOACTIVATE = 0x08000000;
@@ -55,6 +56,8 @@ sealed class Overlay : Form
         {
             _timer.Stop();
             _speaking = false;
+            _transcript = "";
+            Size = new Size(160, 40);
             Hide();
             return;
         }
@@ -71,21 +74,33 @@ sealed class Overlay : Form
         Invalidate();
     }
 
+    public void SetTranscript(string text)
+    {
+        if (_mode != Mode.Listening) return;
+        // Show the recent tail; full text is finalized only when dictation stops.
+        _transcript = text.Length > 220 ? "…" + text[^220..] : text;
+        var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Size = _transcript.Length == 0 ? new Size(160, 40)
+            : new Size(Math.Min(560, screen.Width - 32), 116);
+        Show(_mode);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        using var path = RoundedRect(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2);
+        using var path = RoundedRect(new Rectangle(0, 0, Width - 1, Height - 1), 20);
         using var fill = new SolidBrush(Color.FromArgb(235, 30, 30, 34));
         g.FillPath(fill, path);
 
-        var text = _mode == Mode.Listening ? "Listening" : "Transcribing";
+        var text = _mode == Mode.Listening
+            ? (_transcript.Length > 0 ? "Listening · live preview" : "Listening") : "Transcribing";
         using var font = new Font("Segoe UI", 10f, FontStyle.Regular);
         var textSize = g.MeasureString(text, font);
         var contentWidth = 22 + textSize.Width;
         var x = (Width - contentWidth) / 2;
-        var cy = Height / 2f;
+        var cy = 20f;
 
         if (_mode == Mode.Listening)
         {
@@ -108,6 +123,11 @@ sealed class Overlay : Form
 
         using var textBrush = new SolidBrush(Color.White);
         g.DrawString(text, font, textBrush, x + 22, cy - textSize.Height / 2);
+        if (_transcript.Length > 0)
+        {
+            using var format = new StringFormat { Trimming = StringTrimming.EllipsisWord };
+            g.DrawString(_transcript, font, textBrush, new RectangleF(16, 42, Width - 32, Height - 50), format);
+        }
     }
 
     private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
