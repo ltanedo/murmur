@@ -18,6 +18,28 @@ foreach (var (input, expected) in new[]
     if (LocalSpeechEngine.RemoveBlankAudioMarkers(input) != expected)
         throw new Exception($"Blank-audio filter failed for: {input}");
 Console.WriteLine("PASS: blank-audio annotations removed; genuine text preserved.");
+var streamed = new StreamingTranscript();
+streamed.Update("one two three");
+if (streamed.Text != "one") throw new Exception("Expected first word immediately");
+streamed.Advance();
+if (streamed.Text != "one two") throw new Exception("Expected word-by-word reveal");
+streamed.Update("one two four five");
+if (streamed.Text != "one two") throw new Exception("Stable prefix was replayed");
+streamed.Finish();
+if (streamed.Text != "one two four five") throw new Exception("Correction failed");
+streamed.Update("four five six");
+if (streamed.Text != "four five") throw new Exception("Rolling-window overlap was replayed");
+streamed.Advance();
+streamed.Update("four five six");
+if (streamed.Advance()) throw new Exception("Identical hypothesis replayed");
+streamed.Update(string.Join(" ", Enumerable.Range(0, 100)));
+for (var tick = 0; tick < 6; tick++) streamed.Advance();
+if (streamed.Advance()) throw new Exception("Burst reveal exceeded six animation ticks");
+streamed.Update("");
+if (streamed.Text != "" || streamed.Advance()) throw new Exception("Blank hypothesis left stale words");
+streamed.Update("cancel this"); streamed.Clear();
+if (streamed.Text != "" || streamed.Advance()) throw new Exception("Clear left pending words");
+Console.WriteLine("PASS: word reveal, revisions, rolling overlap, burst catch-up and clearing.");
 var decodeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var decodeCancelled = false;
 var published = 0;

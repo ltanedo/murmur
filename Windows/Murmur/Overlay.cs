@@ -16,6 +16,7 @@ sealed class Overlay : Form
     private bool _speaking;
     private int _tick;
     private string _transcript = "";
+    private readonly StreamingTranscript _streamingText = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 80 };
 
     private const int WS_EX_NOACTIVATE = 0x08000000;
@@ -34,7 +35,12 @@ sealed class Overlay : Form
         TransparencyKey = Color.Magenta;
         DoubleBuffered = true;
         Size = new Size(160, 40);
-        _timer.Tick += (_, _) => { _tick++; Invalidate(); };
+        _timer.Tick += (_, _) =>
+        {
+            _tick++;
+            if (_mode == Mode.Listening && _streamingText.Advance()) UpdateTranscript();
+            Invalidate();
+        };
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -57,9 +63,15 @@ sealed class Overlay : Form
             _timer.Stop();
             _speaking = false;
             _transcript = "";
+            _streamingText.Clear();
             Size = new Size(160, 40);
             Hide();
             return;
+        }
+        if (mode == Mode.Processing)
+        {
+            _streamingText.Finish();
+            UpdateTranscript();
         }
         var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
         Location = new Point(screen.Left + (screen.Width - Width) / 2, screen.Bottom - Height - 24);
@@ -77,12 +89,19 @@ sealed class Overlay : Form
     public void SetTranscript(string text)
     {
         if (_mode != Mode.Listening) return;
+        _streamingText.Update(text);
+        UpdateTranscript();
+        Show(_mode);
+    }
+
+    private void UpdateTranscript()
+    {
+        var text = _streamingText.Text;
         // Show the recent tail; full text is finalized only when dictation stops.
         _transcript = text.Length > 220 ? "…" + text[^220..] : text;
         var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
         Size = _transcript.Length == 0 ? new Size(160, 40)
             : new Size(Math.Min(560, screen.Width - 32), 116);
-        Show(_mode);
     }
 
     protected override void OnPaint(PaintEventArgs e)

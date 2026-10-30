@@ -16,7 +16,7 @@ sealed class LiveTranscriptionPreview
             {
                 while (true)
                 {
-                    await Task.Delay(interval ?? TimeSpan.FromMilliseconds(750), _cancel.Token);
+                    await Task.Delay(interval ?? TimeSpan.FromMilliseconds(250), _cancel.Token);
                     var audio = snapshot();
                     if (audio.Length == 0) continue;
                     var text = await transcribe(audio, _cancel.Token);
