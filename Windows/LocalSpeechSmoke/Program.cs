@@ -3,6 +3,21 @@ using Whisper.net;
 
 // Does not download models. Only --capture briefly opens the microphone, discarding captured audio.
 Console.WriteLine("Native runtime: " + WhisperFactory.GetRuntimeInfo());
+foreach (var (input, expected) in new[]
+{
+    ("[BLANK AUDIO]", ""),
+    (" [BLANK_AUDIO] ", ""),
+    ("[blank audio].", ""),
+    ("[BLANK_AUDIO] [BLANK AUDIO]", ""),
+    ("Hello [BLANK_AUDIO] world.", "Hello world."),
+    ("[BLANK AUDIO] Keep this sentence.", "Keep this sentence."),
+    ("The blank audio needs editing.", "The blank audio needs editing."),
+    ("Keep [this annotation] and punctuation!", "Keep [this annotation] and punctuation!"),
+    ("", "")
+})
+    if (LocalSpeechEngine.RemoveBlankAudioMarkers(input) != expected)
+        throw new Exception($"Blank-audio filter failed for: {input}");
+Console.WriteLine("PASS: blank-audio annotations removed; genuine text preserved.");
 using (var missing = new LocalSpeechEngine(""))
 {
     await ExpectFailure(() => missing.PrepareAsync(_ => throw new Exception("Unexpected download prompt"), _ => { }),

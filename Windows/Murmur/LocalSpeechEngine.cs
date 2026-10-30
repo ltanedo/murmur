@@ -1,6 +1,7 @@
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
 using Whisper.net;
+using System.Text.RegularExpressions;
 
 namespace Murmur;
 
@@ -162,10 +163,21 @@ sealed class LocalSpeechEngine(string modelPath) : ISpeechEngine
             var segments = new List<string>();
             await foreach (var segment in processor.ProcessAsync(samples, _shutdown.Token))
                 if (!string.IsNullOrWhiteSpace(segment.Text)) segments.Add(segment.Text.Trim());
-            return string.Join(" ", segments);
+            return RemoveBlankAudioMarkers(string.Join(" ", segments));
         });
         _work = work;
         return await work;
+    }
+
+    // Whisper can emit this annotation for room noise even when the amplitude gate passes.
+    // Filter model output independently of the optional filler-word cleanup setting.
+    internal static string RemoveBlankAudioMarkers(string text)
+    {
+        var cleaned = Regex.Replace(text, @"\[\s*BLANK[\s_]+AUDIO\s*\]", " ",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (cleaned == text) return text;
+        if (cleaned.All(c => char.IsWhiteSpace(c) || char.IsPunctuation(c))) return "";
+        return Regex.Replace(cleaned, @"\s+", " ").Trim();
     }
 
     public async Task CancelAsync()
